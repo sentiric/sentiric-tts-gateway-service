@@ -1,0 +1,28 @@
+networks:
+  sentiric-net:
+    name: ${NETWORK_NAME:-sentiric-net}
+    driver: bridge
+
+services:
+
+  tts-gateway:  
+
+    build:
+      context: .
+      dockerfile: Dockerfile      
+      args:
+        SERVICE_NAME: sentiric-tts-gateway-service
+
+    env_file: 
+      - ./.env 
+
+    volumes:
+      - ../sentiric-config/tls/certs:/etc/sentiric/tls:ro
+
+    networks:
+      - sentiric-net
+    
+    profiles:
+      - default
+
+    restart: always
