@@ -13,6 +13,7 @@ use sentiric_contracts::sentiric::tts::v1::{
 use reqwest::Client;
 use serde::Serialize;
 
+// Uzman motorlara gönderilecek request body'leri için struct'lar
 #[derive(Serialize)]
 struct CoquiTtsRequest<'a> {
     text: &'a str,
@@ -20,9 +21,17 @@ struct CoquiTtsRequest<'a> {
     speaker_wav_url: Option<&'a str>,
 }
 
+#[derive(Serialize)]
+struct EdgeTtsRequest<'a> {
+    text: &'a str,
+    voice: &'a str,
+}
+
+// Servis state'i
 pub struct MyTtsGatewayService {
     http_client: Client,
     coqui_tts_url: String,
+    edge_tts_url: String, // YENİ
 }
 
 #[tonic::async_trait]
@@ -33,46 +42,60 @@ impl TextToSpeechService for MyTtsGatewayService {
         request: Request<SynthesizeRequest>,
     ) -> Result<Response<SynthesizeResponse>, Status> {
         let req = request.into_inner();
-        info!("Sentezleme isteği alındı, Coqui-TTS motoruna yönlendiriliyor.");
         
-        let speaker_url_str = req.speaker_wav_url.as_deref();
+        // --- AKILLI YÖNLENDİRME MANTIĞI ---
+        // Eğer ses klonlama isteniyorsa Coqui'ye git, yoksa Edge'e git.
+        if req.speaker_wav_url.is_some() {
+            info!("Ses klonlama isteği, Coqui-TTS motoruna yönlendiriliyor.");
+            self.proxy_to_coqui(req).await
+        } else {
+            info!("Standart sentezleme isteği, Edge-TTS motoruna yönlendiriliyor.");
+            self.proxy_to_edge(req).await
+        }
+    }
+}
 
+impl MyTtsGatewayService {
+    async fn proxy_to_coqui(&self, req: SynthesizeRequest) -> Result<Response<SynthesizeResponse>, Status> {
+        let speaker_url_str = req.speaker_wav_url.as_deref();
         let payload = CoquiTtsRequest {
             text: &req.text,
             language: &req.language_code,
             speaker_wav_url: speaker_url_str,
         };
 
-        let res = self.http_client
-            .post(&self.coqui_tts_url)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Uzman Coqui TTS servisine bağlanılamadı.");
-                Status::unavailable("Uzman Coqui TTS servisine ulaşılamıyor.")
-            })?;
-
-        let status = res.status();
-        if !status.is_success() {
-            let error_body = res.text().await.unwrap_or_else(|_| "Bilinmeyen hata".to_string());
-            error!(status = %status, body = %error_body, "Uzman Coqui TTS servisi hata döndürdü.");
-            return Err(Status::internal(format!("Uzman Coqui TTS servisi hata döndürdü: {}", error_body)));
-        }
-
-        let audio_bytes = res.bytes().await.map_err(|e| {
-            error!(error = %e, "Uzman Coqui TTS servisinden gelen ses verisi okunamadı.");
-            Status::internal("Ses verisi okunamadı.")
-        })?;
-
+        let res = self.http_client.post(&self.coqui_tts_url).json(&payload).send().await
+            .map_err(|e| { error!(error = %e, "Uzman Coqui TTS servisine bağlanılamadı."); Status::unavailable("Coqui servisine ulaşılamıyor.") })?;
+        
+        if !res.status().is_success() { /* ... Hata yönetimi ... */ return Err(Status::internal("Coqui servisi hata döndürdü.")); }
+        
+        let audio_bytes = res.bytes().await.map_err(|_| Status::internal("Coqui'den ses verisi okunamadı."))?;
         info!("Uzman motordan (Coqui-TTS) ses başarıyla alındı.");
 
-        let response = SynthesizeResponse {
+        Ok(Response::new(SynthesizeResponse {
             audio_content: audio_bytes.to_vec(),
             engine_used: "sentiric-tts-coqui-service".to_string(),
-        };
+        }))
+    }
 
-        Ok(Response::new(response))
+    async fn proxy_to_edge(&self, req: SynthesizeRequest) -> Result<Response<SynthesizeResponse>, Status> {
+        // voice_selector'da bir ses belirtilmiş mi kontrol et, yoksa varsayılanı kullan
+        let voice = req.voice_selector.unwrap_or_else(|| "tr-TR-AhmetNeural".to_string());
+        
+        let payload = EdgeTtsRequest { text: &req.text, voice: &voice };
+
+        let res = self.http_client.post(&self.edge_tts_url).json(&payload).send().await
+            .map_err(|e| { error!(error = %e, "Uzman Edge TTS servisine bağlanılamadı."); Status::unavailable("Edge servisine ulaşılamıyor.") })?;
+        
+        if !res.status().is_success() { /* ... Hata yönetimi ... */ return Err(Status::internal("Edge servisi hata döndürdü.")); }
+        
+        let audio_bytes = res.bytes().await.map_err(|_| Status::internal("Edge'den ses verisi okunamadı."))?;
+        info!("Uzman motordan (Edge-TTS) ses başarıyla alındı.");
+
+        Ok(Response::new(SynthesizeResponse {
+            audio_content: audio_bytes.to_vec(),
+            engine_used: "sentiric-tts-edge-service".to_string(),
+        }))
     }
 }
 
@@ -84,25 +107,21 @@ async fn main() -> Result<()> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let subscriber_builder = tracing_subscriber::fmt().with_env_filter(env_filter);
     
-    if env == "development" {
-        subscriber_builder.init();
-    } else {
-        subscriber_builder.json().init();
-    }
+    if env == "development" { subscriber_builder.init(); } else { subscriber_builder.json().init(); }
 
     let port = env::var("TTS_GATEWAY_PORT").unwrap_or_else(|_| "50051".to_string());
     let addr: SocketAddr = format!("[::]:{}", port).parse()?;
     
-    let coqui_tts_url = env::var("TTS_COQUI_URL")
-        .context("TTS_COQUI_URL ortam değişkeni bulunamadı!")?;
-    let full_coqui_url = format!("http://{}/api/v1/synthesize", coqui_tts_url);
+    let coqui_tts_url = env::var("TTS_COQUI_URL").context("TTS_COQUI_URL ortam değişkeni bulunamadı!")?;
+    let edge_tts_url = env::var("TTS_EDGE_URL").context("TTS_EDGE_URL ortam değişkeni bulunamadı!")?;
 
     let tts_service = MyTtsGatewayService {
         http_client: Client::new(),
-        coqui_tts_url: full_coqui_url,
+        coqui_tts_url: format!("http://{}/api/v1/synthesize", coqui_tts_url),
+        edge_tts_url: format!("http://{}/api/v1/synthesize", edge_tts_url),
     };
 
-    info!(address = %addr, upstream_url = %tts_service.coqui_tts_url, "TTS Gateway gRPC sunucusu dinleniyor...");
+    info!(address = %addr, "TTS Gateway gRPC sunucusu dinleniyor...");
     
     Server::builder()
         .add_service(TextToSpeechServiceServer::new(tts_service))
