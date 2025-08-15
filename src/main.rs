@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::env;
 use std::net::SocketAddr;
-use tonic::{transport::{Identity, Server, ServerTlsConfig}, Request, Response, Status};
+use tonic::{transport::{Certificate, Identity, Server, ServerTlsConfig}, Request, Response, Status};
 use tracing::{error, info, instrument};
 use tracing_subscriber::EnvFilter;
 
@@ -63,9 +63,10 @@ impl MyTtsGatewayService {
         let res = self.http_client.post(&self.tts_coqui_service_url).json(&payload).send().await
             .map_err(|e| { error!(error = %e, "Uzman Coqui TTS servisine bağlanılamadı."); Status::unavailable("Coqui servisine ulaşılamıyor.") })?;
         
-        if !res.status().is_success() { 
+        if !res.status().is_success() {
+            let status = res.status();
             let err_body = res.text().await.unwrap_or_else(|_| "No error body".to_string());
-            error!(status = %res.status(), body = %err_body, "Coqui servisi hata döndürdü.");
+            error!(status = %status, body = %err_body, "Coqui servisi hata döndürdü.");
             return Err(Status::internal("Coqui servisi hata döndürdü."));
         }
         
@@ -85,9 +86,10 @@ impl MyTtsGatewayService {
         let res = self.http_client.post(&self.tts_edge_service_url).json(&payload).send().await
             .map_err(|e| { error!(error = %e, "Uzman Edge TTS servisine bağlanılamadı."); Status::unavailable("Edge servisine ulaşılamıyor.") })?;
         
-        if !res.status().is_success() { 
+        if !res.status().is_success() {
+            let status = res.status();
             let err_body = res.text().await.unwrap_or_else(|_| "No error body".to_string());
-            error!(status = %res.status(), body = %err_body, "Edge servisi hata döndürdü.");
+            error!(status = %status, body = %err_body, "Edge servisi hata döndürdü.");
             return Err(Status::internal("Edge servisi hata döndürdü."));
         }
         
@@ -122,23 +124,28 @@ async fn main() -> Result<()> {
         tts_coqui_service_url: format!("http://{}/api/v1/synthesize", tts_coqui_service_url),
         tts_edge_service_url: format!("http://{}/api/v1/synthesize", tts_edge_service_url),
     };
-
-    // --- KRİTİK DEĞİŞİKLİK: mTLS'ten tek yönlü TLS'e geçiş ---
-    // Bu, sorunun istemci sertifikası doğrulamasında olup olmadığını test etmek içindir.
+    
+    // --- mTLS'i YENİDEN ETKİNLEŞTİRME ---
     let cert_path = env::var("TTS_GATEWAY_CERT_PATH").context("TTS_GATEWAY_CERT_PATH eksik")?;
     let key_path = env::var("TTS_GATEWAY_KEY_PATH").context("TTS_GATEWAY_KEY_PATH eksik")?;
+    let ca_path = env::var("GRPC_TLS_CA_PATH").context("GRPC_TLS_CA_PATH eksik")?;
 
     let identity = {
         let cert = tokio::fs::read(&cert_path).await.context("Sunucu sertifikası okunamadı")?;
         let key = tokio::fs::read(&key_path).await.context("Sunucu anahtarı okunamadı")?;
         Identity::from_pem(cert, key)
     };
+    
+    let client_ca_cert = {
+        let ca = tokio::fs::read(&ca_path).await.context("CA sertifikası okunamadı")?;
+        Certificate::from_pem(ca)
+    };
 
     let tls_config = ServerTlsConfig::new()
-        .identity(identity);
-        // .client_ca_root(client_ca_cert); // <-- İstemci doğrulama geçici olarak devre dışı bırakıldı.
+        .identity(identity)
+        .client_ca_root(client_ca_cert); // <-- İstemci doğrulama yeniden aktif.
 
-    info!(address = %addr, "TTS Gateway gRPC sunucusu (tek yönlü TLS ile) dinleniyor...");
+    info!(address = %addr, "TTS Gateway gRPC sunucusu (mTLS ile) dinleniyor...");
     
     Server::builder()
         .tls_config(tls_config)?
