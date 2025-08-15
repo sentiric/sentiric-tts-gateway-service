@@ -34,7 +34,12 @@ pub struct MyTtsGatewayService {
 
 #[tonic::async_trait]
 impl TextToSpeechService for MyTtsGatewayService {
-    #[instrument(skip(self), fields(text = %request.get_ref().text))]
+    #[instrument(skip(self, request), fields(
+        text = %request.get_ref().text,
+        lang = %request.get_ref().language_code,
+        has_speaker_url = request.get_ref().speaker_wav_url.is_some(),
+        voice_selector = ?request.get_ref().voice_selector,
+    ))]
     async fn synthesize(
         &self,
         request: Request<SynthesizeRequest>,
@@ -125,7 +130,6 @@ async fn main() -> Result<()> {
         tts_edge_service_url: format!("http://{}/api/v1/synthesize", tts_edge_service_url),
     };
     
-    // --- mTLS'i YENİDEN ETKİNLEŞTİRME ---
     let cert_path = env::var("TTS_GATEWAY_CERT_PATH").context("TTS_GATEWAY_CERT_PATH eksik")?;
     let key_path = env::var("TTS_GATEWAY_KEY_PATH").context("TTS_GATEWAY_KEY_PATH eksik")?;
     let ca_path = env::var("GRPC_TLS_CA_PATH").context("GRPC_TLS_CA_PATH eksik")?;
@@ -143,7 +147,7 @@ async fn main() -> Result<()> {
 
     let tls_config = ServerTlsConfig::new()
         .identity(identity)
-        .client_ca_root(client_ca_cert); // <-- İstemci doğrulama yeniden aktif.
+        .client_ca_root(client_ca_cert);
 
     info!(address = %addr, "TTS Gateway gRPC sunucusu (mTLS ile) dinleniyor...");
     
