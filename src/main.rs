@@ -30,8 +30,10 @@ struct EdgeTtsRequest<'a> {
 // Servis state'i
 pub struct MyTtsGatewayService {
     http_client: Client,
-    coqui_tts_url: String,
-    edge_tts_url: String, // YENİ
+    tts_coqui_service_url: String,
+    tts_edge_service_url: String,
+    tts_elevenlabs_service_url: String,
+    tts_styletts2_service_url: String,
 }
 
 #[tonic::async_trait]
@@ -64,7 +66,7 @@ impl MyTtsGatewayService {
             speaker_wav_url: speaker_url_str,
         };
 
-        let res = self.http_client.post(&self.coqui_tts_url).json(&payload).send().await
+        let res = self.http_client.post(&self.tts_coqui_service_url).json(&payload).send().await
             .map_err(|e| { error!(error = %e, "Uzman Coqui TTS servisine bağlanılamadı."); Status::unavailable("Coqui servisine ulaşılamıyor.") })?;
         
         if !res.status().is_success() { /* ... Hata yönetimi ... */ return Err(Status::internal("Coqui servisi hata döndürdü.")); }
@@ -84,7 +86,7 @@ impl MyTtsGatewayService {
         
         let payload = EdgeTtsRequest { text: &req.text, voice: &voice };
 
-        let res = self.http_client.post(&self.edge_tts_url).json(&payload).send().await
+        let res = self.http_client.post(&self.tts_edge_service_url).json(&payload).send().await
             .map_err(|e| { error!(error = %e, "Uzman Edge TTS servisine bağlanılamadı."); Status::unavailable("Edge servisine ulaşılamıyor.") })?;
         
         if !res.status().is_success() { /* ... Hata yönetimi ... */ return Err(Status::internal("Edge servisi hata döndürdü.")); }
@@ -112,13 +114,17 @@ async fn main() -> Result<()> {
     let port = env::var("TTS_GATEWAY_PORT").unwrap_or_else(|_| "50051".to_string());
     let addr: SocketAddr = format!("[::]:{}", port).parse()?;
     
-    let coqui_tts_url = env::var("TTS_COQUI_URL").context("TTS_COQUI_URL ortam değişkeni bulunamadı!")?;
-    let edge_tts_url = env::var("TTS_EDGE_URL").context("TTS_EDGE_URL ortam değişkeni bulunamadı!")?;
+    let tts_coqui_service_url = env::var("TTS_COQUI_SERVICE_URL").context("TTS_COQUI_SERVICE_URL ortam değişkeni bulunamadı!")?;
+    let tts_edge_service_url = env::var("TTS_EDGE_SERVICE_URL").context("TTS_EDGE_SERVICE_URL ortam değişkeni bulunamadı!")?;
+    let tts_elevenlabs_service_url = env::var("TTS_ELEVENLABS_SERVICE_URL").context("TTS_ELEVENLABS_SERVICE_URL ortam değişkeni bulunamadı!")?;
+    let tts_styletts2_service_url = env::var("TTS_STYLETTS2_SERVICE_URL").context("TTS_STYLETTS2_SERVICE_URL ortam değişkeni bulunamadı!")?;
 
     let tts_service = MyTtsGatewayService {
         http_client: Client::new(),
-        coqui_tts_url: format!("http://{}/api/v1/synthesize", coqui_tts_url),
-        edge_tts_url: format!("http://{}/api/v1/synthesize", edge_tts_url),
+        tts_coqui_service_url: format!("//{}/api/v1/synthesize", tts_coqui_service_url),
+        tts_edge_service_url: format!("//{}/api/v1/synthesize", tts_edge_service_url),
+        tts_elevenlabs_service_url: format!("//{}/api/v1/synthesize", tts_elevenlabs_service_url),
+        tts_styletts2_service_url: format!("//{}/api/v1/synthesize", tts_styletts2_service_url),
     };
 
     info!(address = %addr, "TTS Gateway gRPC sunucusu dinleniyor...");
