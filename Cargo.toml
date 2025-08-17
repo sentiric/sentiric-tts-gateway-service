@@ -21,4 +21,4 @@ url = "2.5"
 # Yeni güncellenen kontratları kullan
 [dependencies.sentiric-contracts]
 git = "https://github.com/sentiric/sentiric-contracts.git"
-tag = "v2.0.2"
+tag = "v1.7.5"
