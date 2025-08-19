@@ -14,7 +14,7 @@ services:
         SERVICE_NAME: sentiric-tts-gateway-service
 
     env_file: 
-      - ./.env 
+      - ./.env.docker 
 
     volumes:
       - ../sentiric-config/tls/certs:/etc/sentiric/tls:ro
