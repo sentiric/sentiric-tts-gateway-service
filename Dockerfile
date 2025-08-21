@@ -43,5 +43,4 @@ USER appuser
 # Argümanı ENV değişkenine ata
 ENV SERVICE_NAME=${SERVICE_NAME}
 
-# 'sh -c' ile çalıştırarak ENV değişkeninin okunmasını garanti et
-ENTRYPOINT ["sh", "-c", "./$SERVICE_NAME"]
+ENTRYPOINT ["./sentiric-tts-gateway-service"]
