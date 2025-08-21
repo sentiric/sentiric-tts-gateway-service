@@ -1,11 +1,54 @@
-# Git dosyalarını yoksay
+# __pycache__ klasörleri ve bytecode dosyaları
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Sanal ortam klasörleri
+env/
+venv/
+ENV/
+.venv/
+.python-version
+
+# Paketleme ile ilgili geçici dosyalar
+*.egg-info/
+.eggs/
+*.egg
+
+# Git dosyaları
 .git
 .gitignore
 
-# Rust'ın derleme çıktılarını yoksay
-# Bunlar konteyner İÇİNDE oluşturulmalı, DIŞARIDAN gönderilmemeli!
-target/
-
-# IDE/Editör özel dosyaları
+# IDE/editor dosyaları
 .vscode/
 .idea/
+*.swp
+
+# Sistem dosyaları
+.DS_Store
+Thumbs.db
+
+# Log dosyaları
+*.log
+
+# Ortam değişken dosyaları
+.env
+.env.*
+
+# Test çıktıları ve coverage
+htmlcov/
+.coverage
+.tox/
+.nox/
+pytest_cache/
+coverage.xml
+*.cover
+*.py,cover
+
+# Jupyter Notebook checkpoint dosyaları
+.ipynb_checkpoints/
+
+# Docker-compose vs.
+docker-compose.yml
+docker-compose.override.yml
