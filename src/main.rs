@@ -14,6 +14,13 @@ use reqwest::Client;
 use serde::Serialize;
 use url::Url;
 
+// YENİ: Edge TTS için de bir request struct'ı tanımlıyoruz.
+#[derive(Serialize)]
+struct EdgeTtsRequest<'a> {
+    text: &'a str,
+    voice: &'a str,
+}
+
 #[derive(Serialize)]
 struct CoquiTtsRequest<'a> {
     text: &'a str,
@@ -82,22 +89,16 @@ impl MyTtsGatewayService {
     async fn proxy_to_edge(&self, req: SynthesizeRequest) -> Result<Response<SynthesizeResponse>, Status> {
         let voice = req.voice_selector.unwrap_or_else(|| "tr-TR-AhmetNeural".to_string());
         
-        // --- DÜZELTME BURADA: GET isteği için URL'ye parametre ekliyoruz ---
-        let base_url = Url::parse(&self.tts_edge_service_url)
-            .map_err(|e| {
-                error!(error = %e, "Edge TTS URL'si geçersiz.");
-                Status::internal("Edge TTS URL konfigürasyonu hatalı.")
-            })?;
+        // --- DÜZELTME BURADA: Artık POST isteği için bir payload oluşturuyoruz ---
+        let payload = EdgeTtsRequest {
+            text: &req.text,
+            voice: &voice,
+        };
 
-        let mut url_with_params = base_url.clone();
-        url_with_params.query_pairs_mut()
-            .append_pair("text", &req.text)
-            .append_pair("voice", &voice);
+        info!(target_url = %self.tts_edge_service_url, "Edge-TTS'e POST isteği gönderiliyor.");
 
-        info!(target_url = %url_with_params, "Edge-TTS'e GET isteği gönderiliyor.");
-
-        // Artık .json() kullanmıyoruz, çünkü parametreler URL'de
-        let res = self.http_client.get(url_with_params).send().await
+        // İsteği .json(payload) ile POST olarak gönderiyoruz.
+        let res = self.http_client.post(&self.tts_edge_service_url).json(&payload).send().await
             .map_err(|e| { error!(error = %e, "Uzman Edge TTS servisine bağlanılamadı."); Status::unavailable("Edge servisine ulaşılamıyor.") })?;
         // --- DÜZELTME SONU ---
         
