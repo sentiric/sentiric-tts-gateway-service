@@ -22,16 +22,16 @@ Bu faz, servisin temel bir yönlendirici olarak çalışmasını hedefler.
 
 ---
 
-### Faz 2: Akıllı Özellikler
-
-Bu faz, servise "akıllı" yeteneklerini kazandırmayı hedefler.
-
+### **FAZ 2: Optimizasyon ve Dayanıklılık**
 -   [ ] **Görev ID: TTS-GW-004 - Redis Önbellekleme**
-    -   **Açıklama:** Bir sentezleme isteği geldiğinde önce Redis'te bu metin için bir önbellek kaydı olup olmadığını kontrol et. Varsa, sesi doğrudan Redis'ten dön. Yoksa, uzman motordan gelen sesi Redis'e kaydet.
-    -   **Durum:** ⬜ Planlandı.
+    -   **Açıklama:** Sık sentezlenen cümleler için Redis tabanlı bir önbellekleme mekanizması ekle.
+    -   **Kabul Kriterleri:**
+        -   [ ] Bir `Synthesize` isteği geldiğinde, önce Redis'te bu metin için bir anahtar olup olmadığı kontrol edilmeli.
+        -   [ ] Anahtar varsa, ses verisi doğrudan Redis'ten dönülmeli ve loglarda "CACHE HIT" mesajı görünmeli.
+        -   [ ] Anahtar yoksa, uzman motordan gelen ses verisi Redis'e kaydedilmeli ve loglarda "CACHE MISS" mesajı görünmeli.
 
--   [ ] **Görev ID: TTS-GW-005 - Akıllı Yönlendirme Mantığı**
-    -   **Açıklama:** İstekte `speaker_wav_url` varsa `coqui-tts-service`'e, `quality="premium"` ise `elevenlabs-tts-service`'e, diğer durumlarda `edge-tts-service`'e yönlendiren bir mantık ekle.
+-   [ ] **Görev ID: TTS-GW-005 - Uzman Motor Fallback Mantığı**
+    -   **Açıklama:** Birincil uzman motor (örn: `coqui-tts`) hata verdiğinde veya zaman aşımına uğradığında, isteği otomatik olarak ikincil motora (`edge-tts`) yönlendir.
     -   **Durum:** ⬜ Planlandı.
 
 -   [ ] **Görev ID: TTS-GW-006 - Temel SSML Desteği**
