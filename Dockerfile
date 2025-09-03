@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     && curl -sSL "https://github.com/bufbuild/buf/releases/download/v1.35.1/buf-Linux-x86_64" -o /usr/local/bin/buf \
-    && chmod +x /usr/local/bin/buf \    
+    && chmod +x /usr/local/bin/buf \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -34,8 +34,8 @@ RUN cargo build --release
 # --- STAGE 2: Final ---
 FROM debian:bullseye-slim
 
-# Healthcheck için 'netcat' ve SSL/TLS için sertifikaları ekliyoruz.
-RUN apt-get update && apt-get install -y ca-certificates libssl3 netcat-openbsd && rm -rf /var/lib/apt/lists/*
+# DÜZELTME: libssl3 yerine, bullseye'da bulunan libssl1.1'i kuruyoruz.
+RUN apt-get update && apt-get install -y ca-certificates libssl1.1 netcat-openbsd && rm -rf /var/lib/apt/lists/*
 
 # YENİ: Build argümanlarını tekrar tanımla ki runtime'da da kullanılabilsin
 ARG GIT_COMMIT
