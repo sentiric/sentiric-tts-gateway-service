@@ -1687,10 +1687,11 @@ dependencies = [
 
 [[package]]
 name = "sentiric-contracts"
-version = "1.7.8"
-source = "git+https://github.com/sentiric/sentiric-contracts.git?tag=v1.7.8#f9f47511e24b1cd10df23ec67bbcd48fc3b53959"
+version = "1.8.8"
+source = "git+https://github.com/sentiric/sentiric-contracts.git?tag=v1.8.8#0b8655f5c6e0a7f2b059fee3ddf91acdbe5f622e"
 dependencies = [
  "prost",
+ "prost-types",
  "serde",
  "tonic",
  "tonic-build",

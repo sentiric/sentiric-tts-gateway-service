@@ -1,3 +1,4 @@
+// src/main.rs (Sadece main fonksiyonu güncellendi)
 use anyhow::{Context, Result};
 use std::env;
 use std::net::SocketAddr;
@@ -12,7 +13,7 @@ use sentiric_contracts::sentiric::tts::v1::{
 
 use reqwest::Client;
 use serde::Serialize;
-use url::Url;
+// use url::Url;
 
 // YENİ: Edge TTS için de bir request struct'ı tanımlıyoruz.
 #[derive(Serialize)]
@@ -128,6 +129,21 @@ async fn main() -> Result<()> {
     let subscriber_builder = tracing_subscriber::fmt().with_env_filter(env_filter);
     
     if env == "development" { subscriber_builder.init(); } else { subscriber_builder.json().init(); }
+
+    // YENİ: Build-time değişkenlerini environment'tan oku
+    let service_version = env::var("SERVICE_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
+    let git_commit = env::var("GIT_COMMIT").unwrap_or_else(|_| "unknown".to_string());
+    let build_date = env::var("BUILD_DATE").unwrap_or_else(|_| "unknown".to_string());
+
+    // YENİ: Başlangıçta versiyon bilgisini logla
+    info!(
+        service_name = "sentiric-tts-gateway-service",
+        version = %service_version,
+        commit = %git_commit,
+        build_date = %build_date,
+        profile = %env,
+        "🚀 Servis başlatılıyor..."
+    );
 
     let port = env::var("TTS_GATEWAY_PORT").unwrap_or_else(|_| "50051".to_string());
     let addr: SocketAddr = format!("[::]:{}", port).parse()?;
