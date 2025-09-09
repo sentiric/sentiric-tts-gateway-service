@@ -1,9 +1,11 @@
-// src/main.rs (Sadece main fonksiyonu güncellendi)
+// src/main.rs (Sadece ilgili fonksiyonlar ve importlar güncellendi)
 use anyhow::{Context, Result};
 use std::env;
 use std::net::SocketAddr;
 use tonic::{transport::{Certificate, Identity, Server, ServerTlsConfig}, Request, Response, Status};
-use tracing::{error, info, instrument};
+// --- DEĞİŞİKLİK BAŞLANGICI ---
+use tracing::{error, info, instrument, warn}; // 'warn' eklendi
+// --- DEĞİŞİKLİK SONU ---
 use tracing_subscriber::EnvFilter;
 
 use sentiric_contracts::sentiric::tts::v1::{
@@ -88,9 +90,25 @@ impl MyTtsGatewayService {
     }
 
     async fn proxy_to_edge(&self, req: SynthesizeRequest) -> Result<Response<SynthesizeResponse>, Status> {
-        let voice = req.voice_selector.unwrap_or_else(|| "tr-TR-AhmetNeural".to_string());
+        // --- DEĞİŞİKLİK BAŞLANGICI: voice_selector mantığı düzeltildi ve varsayılan ses iyileştirildi ---
+        const DEFAULT_VOICE: &str = "tr-TR-EmelNeural";
+
+        let voice = match req.voice_selector.as_deref() {
+            // Gelen değer hem dolu hem de boşluklardan ibaret değilse onu kullan.
+            Some(v) if !v.trim().is_empty() => {
+                info!(voice = %v, "Gelen istekten ses seçici kullanılıyor.");
+                v.to_string()
+            }
+            // Gelen değer boş veya tanımsız ise, durumu logla ve varsayılanı kullan.
+            _ => {
+                warn!(
+                    "Gelen istekte 'voice_selector' alanı boş veya tanımsız. Varsayılan ses kullanılıyor: {}",
+                    DEFAULT_VOICE
+                );
+                DEFAULT_VOICE.to_string()
+            }
+        };
         
-        // --- DÜZELTME BURADA: Artık POST isteği için bir payload oluşturuyoruz ---
         let payload = EdgeTtsRequest {
             text: &req.text,
             voice: &voice,
@@ -98,10 +116,9 @@ impl MyTtsGatewayService {
 
         info!(target_url = %self.tts_edge_service_url, "Edge-TTS'e POST isteği gönderiliyor.");
 
-        // İsteği .json(payload) ile POST olarak gönderiyoruz.
         let res = self.http_client.post(&self.tts_edge_service_url).json(&payload).send().await
             .map_err(|e| { error!(error = %e, "Uzman Edge TTS servisine bağlanılamadı."); Status::unavailable("Edge servisine ulaşılamıyor.") })?;
-        // --- DÜZELTME SONU ---
+        // --- DEĞİŞİKLİK SONU ---
         
         if !res.status().is_success() {
             let status = res.status();
@@ -130,12 +147,10 @@ async fn main() -> Result<()> {
     
     if env == "development" { subscriber_builder.init(); } else { subscriber_builder.json().init(); }
 
-    // YENİ: Build-time değişkenlerini environment'tan oku
     let service_version = env::var("SERVICE_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
     let git_commit = env::var("GIT_COMMIT").unwrap_or_else(|_| "unknown".to_string());
     let build_date = env::var("BUILD_DATE").unwrap_or_else(|_| "unknown".to_string());
 
-    // YENİ: Başlangıçta versiyon bilgisini logla
     info!(
         service_name = "sentiric-tts-gateway-service",
         version = %service_version,

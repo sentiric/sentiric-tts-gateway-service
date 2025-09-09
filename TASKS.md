@@ -2,6 +2,18 @@
 
 Bu belge, `tts-gateway-service`'in geliştirme yol haritasını ve önceliklerini tanımlar.
 
+
+---
+*   **Görev ID:** `TTS-GW-BUG-01`
+    *   **Başlık:** fix(routing): Gelen `SynthesizeRequest` içindeki `voice_selector` alanını doğru kullan
+    *   **Durum:** `[ ✅ ] Tamamlandı`
+    *   **Öncelik:** **KRİTİK**
+    *   **Gerekçe:** Platformun dinamik ses seçme yeteneği çalışmıyordu. `dialplan`'dan `EmelNeural` sesi istenmesine rağmen, gateway varsayılan olarak `AhmetNeural` sesini kullanıyordu. `proxy_to_edge` fonksiyonu, gelen isteğin `voice_selector` alanını okumalı ve bunu `EdgeTtsRequest` payload'ına doğru şekilde aktarmalıydı.
+    *   **Kabul Kriterleri:**
+        1.  `dialplan`'da `tr-TR-EmelNeural` sesi tanımlandığında, arama sırasında duyulan sesin kadın sesi olduğu doğrulanmalıdır.
+        2.  `tts-edge-service` logları, `voice` parametresi olarak `tr-TR-EmelNeural` aldığını göstermelidir.
+    *   **Çözüm Notu:** `proxy_to_edge` fonksiyonundaki mantık güncellendi. Artık gelen `voice_selector` alanı dolu ise öncelikli olarak o kullanılıyor. Eğer alan boş veya tanımsız ise, sistem bir uyarı log'u basarak varsayılan ses olan daha kaliteli `tr-TR-EmelNeural` kadın sesine yönleniyor.
+
 ---
 
 ### Faz 1: Temel Yönlendirme ve Proxy (Sıradaki Öncelik)
