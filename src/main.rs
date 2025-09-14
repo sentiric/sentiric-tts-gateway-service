@@ -3,8 +3,8 @@ use anyhow::{Context, Result};
 use std::env;
 use std::net::SocketAddr;
 use tonic::{transport::{Certificate, Identity, Server, ServerTlsConfig}, Request, Response, Status};
-// --- DEĞİŞİKLİK BAŞLANGICI ---
-use tracing::{error, info, instrument, warn}; // 'warn' eklendi
+// --- DEĞİŞİKLİK BAŞLANGICI: 'warn' zaten ekliydi, bir değişiklik yok ama doğru. ---
+use tracing::{error, info, instrument, warn};
 // --- DEĞİŞİKLİK SONU ---
 use tracing_subscriber::EnvFilter;
 
@@ -15,9 +15,7 @@ use sentiric_contracts::sentiric::tts::v1::{
 
 use reqwest::Client;
 use serde::Serialize;
-// use url::Url;
 
-// YENİ: Edge TTS için de bir request struct'ı tanımlıyoruz.
 #[derive(Serialize)]
 struct EdgeTtsRequest<'a> {
     text: &'a str,
@@ -33,8 +31,10 @@ struct CoquiTtsRequest<'a> {
 
 pub struct MyTtsGatewayService {
     http_client: Client,
-    tts_coqui_service_url: String,
     tts_edge_service_url: String,
+    // --- DEĞİŞİKLİK BAŞLANGICI: Coqui URL'sini opsiyonel yapıyoruz. ---
+    tts_coqui_service_url: Option<String>,
+    // --- DEĞİŞİKLİK SONU ---
 }
 
 #[tonic::async_trait]
@@ -50,27 +50,42 @@ impl TextToSpeechService for MyTtsGatewayService {
         request: Request<SynthesizeRequest>,
     ) -> Result<Response<SynthesizeResponse>, Status> {
         let req = request.into_inner();
-        
-        if req.speaker_wav_url.is_some() {
-            info!("Ses klonlama isteği, Coqui-TTS motoruna yönlendiriliyor.");
-            self.proxy_to_coqui(req).await
+
+        // --- DEĞİŞİKLİK BAŞLANGICI: Yönlendirme mantığını daha sağlam hale getiriyoruz. ---
+        let use_coqui_for_cloning = req.speaker_wav_url.is_some();
+
+        if use_coqui_for_cloning {
+            if self.tts_coqui_service_url.is_some() {
+                info!("Ses klonlama isteği, yapılandırılmış Coqui-TTS motoruna yönlendiriliyor.");
+                self.proxy_to_coqui(req).await
+            } else {
+                warn!("Ses klonlama isteği alındı ancak Coqui-TTS servisi yapılandırılmamış.");
+                Err(Status::failed_precondition(
+                    "Bu sunucu ses klonlama (voice cloning) için yapılandırılmamıştır.",
+                ))
+            }
         } else {
             info!("Standart sentezleme isteği, Edge-TTS motoruna yönlendiriliyor.");
             self.proxy_to_edge(req).await
         }
+        // --- DEĞİŞİKLİK SONU ---
     }
 }
 
 impl MyTtsGatewayService {
     async fn proxy_to_coqui(&self, req: SynthesizeRequest) -> Result<Response<SynthesizeResponse>, Status> {
-        let speaker_url_str = req.speaker_wav_url.as_deref();
+        // `synthesize` fonksiyonundaki kontrol sayesinde burada unwrap() kullanmak güvenlidir.
+        let target_url = self.tts_coqui_service_url.as_ref().unwrap();
+
         let payload = CoquiTtsRequest {
             text: &req.text,
             language: &req.language_code,
-            speaker_wav_url: speaker_url_str,
+            speaker_wav_url: req.speaker_wav_url.as_deref(),
         };
+        
+        info!(target_url = %target_url, "Coqui-TTS'e POST isteği gönderiliyor.");
 
-        let res = self.http_client.post(&self.tts_coqui_service_url).json(&payload).send().await
+        let res = self.http_client.post(target_url).json(&payload).send().await
             .map_err(|e| { error!(error = %e, "Uzman Coqui TTS servisine bağlanılamadı."); Status::unavailable("Coqui servisine ulaşılamıyor.") })?;
         
         if !res.status().is_success() {
@@ -90,16 +105,14 @@ impl MyTtsGatewayService {
     }
 
     async fn proxy_to_edge(&self, req: SynthesizeRequest) -> Result<Response<SynthesizeResponse>, Status> {
-        // --- DEĞİŞİKLİK BAŞLANGICI: voice_selector mantığı düzeltildi ve varsayılan ses iyileştirildi ---
         const DEFAULT_VOICE: &str = "tr-TR-EmelNeural";
 
+        // Bu kısım zaten gayet iyi yazılmış, aynen kalabilir.
         let voice = match req.voice_selector.as_deref() {
-            // Gelen değer hem dolu hem de boşluklardan ibaret değilse onu kullan.
             Some(v) if !v.trim().is_empty() => {
                 info!(voice = %v, "Gelen istekten ses seçici kullanılıyor.");
                 v.to_string()
             }
-            // Gelen değer boş veya tanımsız ise, durumu logla ve varsayılanı kullan.
             _ => {
                 warn!(
                     "Gelen istekte 'voice_selector' alanı boş veya tanımsız. Varsayılan ses kullanılıyor: {}",
@@ -118,7 +131,6 @@ impl MyTtsGatewayService {
 
         let res = self.http_client.post(&self.tts_edge_service_url).json(&payload).send().await
             .map_err(|e| { error!(error = %e, "Uzman Edge TTS servisine bağlanılamadı."); Status::unavailable("Edge servisine ulaşılamıyor.") })?;
-        // --- DEĞİŞİKLİK SONU ---
         
         if !res.status().is_success() {
             let status = res.status();
@@ -160,17 +172,29 @@ async fn main() -> Result<()> {
         "🚀 Servis başlatılıyor..."
     );
 
-    let port = env::var("TTS_GATEWAY_PORT").unwrap_or_else(|_| "50051".to_string());
+    let port = env::var("TTS_GATEWAY_GRPC_PORT").unwrap_or_else(|_| "14011".to_string());
     let addr: SocketAddr = format!("[::]:{}", port).parse()?;
     
-    let tts_coqui_service_url = env::var("TTS_COQUI_SERVICE_URL").context("TTS_COQUI_SERVICE_URL ortam değişkeni bulunamadı!")?;
-    let tts_edge_service_url = env::var("TTS_EDGE_SERVICE_URL").context("TTS_EDGE_SERVICE_URL ortam değişkeni bulunamadı!")?;
+    // Edge-TTS'i zorunlu kabul ediyoruz.
+    let tts_edge_service_url = env::var("TTS_EDGE_SERVICE_HTTP_URL").context("TTS_EDGE_SERVICE_HTTP_URL ortam değişkeni bulunamadı!")?;
+
+    // --- DEĞİŞİKLİK BAŞLANGICI: Coqui URL'sini çökmeden, opsiyonel olarak okuyoruz. ---
+    let tts_coqui_service_url = env::var("TTS_COQUI_SERVICE_HTTP_URL")
+        .ok() // Değişken varsa Some(deger), yoksa None döner.
+        .map(|url| format!("{}/api/v1/synthesize", url)); // Varsa, URL'yi formatlar.
+    
+    if let Some(url) = &tts_coqui_service_url {
+        info!(coqui_url = %url, "Coqui-TTS entegrasyonu aktif.");
+    } else {
+        warn!("TTS_COQUI_SERVICE_HTTP_URL ortam değişkeni ayarlanmamış. Coqui-TTS (ses klonlama) özelliği devre dışı.");
+    }
 
     let tts_service = MyTtsGatewayService {
         http_client: Client::new(),
-        tts_coqui_service_url: format!("{}/api/v1/synthesize", tts_coqui_service_url),
         tts_edge_service_url: format!("{}/api/v1/synthesize", tts_edge_service_url),
+        tts_coqui_service_url, // Değişkenin kendisi zaten Option<String>
     };
+    // --- DEĞİŞİKLİK SONU ---
     
     let cert_path = env::var("TTS_GATEWAY_CERT_PATH").context("TTS_GATEWAY_CERT_PATH eksik")?;
     let key_path = env::var("TTS_GATEWAY_KEY_PATH").context("TTS_GATEWAY_KEY_PATH eksik")?;
