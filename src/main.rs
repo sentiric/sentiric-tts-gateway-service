@@ -3,9 +3,7 @@ use anyhow::{Context, Result};
 use std::env;
 use std::net::SocketAddr;
 use tonic::{transport::{Certificate, Identity, Server, ServerTlsConfig}, Request, Response, Status};
-// --- DEĞİŞİKLİK BAŞLANGICI: 'warn' zaten ekliydi, bir değişiklik yok ama doğru. ---
 use tracing::{error, info, instrument, warn};
-// --- DEĞİŞİKLİK SONU ---
 use tracing_subscriber::EnvFilter;
 
 use sentiric_contracts::sentiric::tts::v1::{
@@ -32,9 +30,7 @@ struct CoquiTtsRequest<'a> {
 pub struct MyTtsGatewayService {
     http_client: Client,
     tts_edge_service_url: String,
-    // --- DEĞİŞİKLİK BAŞLANGICI: Coqui URL'sini opsiyonel yapıyoruz. ---
     tts_coqui_service_url: Option<String>,
-    // --- DEĞİŞİKLİK SONU ---
 }
 
 #[tonic::async_trait]
@@ -49,9 +45,9 @@ impl TextToSpeechService for MyTtsGatewayService {
         &self,
         request: Request<SynthesizeRequest>,
     ) -> Result<Response<SynthesizeResponse>, Status> {
+
         let req = request.into_inner();
 
-        // --- DEĞİŞİKLİK BAŞLANGICI: Yönlendirme mantığını daha sağlam hale getiriyoruz. ---
         let use_coqui_for_cloning = req.speaker_wav_url.is_some();
 
         if use_coqui_for_cloning {
@@ -68,13 +64,12 @@ impl TextToSpeechService for MyTtsGatewayService {
             info!("Standart sentezleme isteği, Edge-TTS motoruna yönlendiriliyor.");
             self.proxy_to_edge(req).await
         }
-        // --- DEĞİŞİKLİK SONU ---
     }
 }
 
 impl MyTtsGatewayService {
     async fn proxy_to_coqui(&self, req: SynthesizeRequest) -> Result<Response<SynthesizeResponse>, Status> {
-        // `synthesize` fonksiyonundaki kontrol sayesinde burada unwrap() kullanmak güvenlidir.
+        
         let target_url = self.tts_coqui_service_url.as_ref().unwrap();
 
         let payload = CoquiTtsRequest {
@@ -175,13 +170,11 @@ async fn main() -> Result<()> {
     let port = env::var("TTS_GATEWAY_GRPC_PORT").unwrap_or_else(|_| "14011".to_string());
     let addr: SocketAddr = format!("[::]:{}", port).parse()?;
     
-    // Edge-TTS'i zorunlu kabul ediyoruz.
     let tts_edge_service_url = env::var("TTS_EDGE_SERVICE_HTTP_URL").context("TTS_EDGE_SERVICE_HTTP_URL ortam değişkeni bulunamadı!")?;
 
-    // --- DEĞİŞİKLİK BAŞLANGICI: Coqui URL'sini çökmeden, opsiyonel olarak okuyoruz. ---
     let tts_coqui_service_url = env::var("TTS_COQUI_SERVICE_HTTP_URL")
-        .ok() // Değişken varsa Some(deger), yoksa None döner.
-        .map(|url| format!("{}/api/v1/synthesize", url)); // Varsa, URL'yi formatlar.
+        .ok()
+        .map(|url| format!("{}/api/v1/synthesize", url));
     
     if let Some(url) = &tts_coqui_service_url {
         info!(coqui_url = %url, "Coqui-TTS entegrasyonu aktif.");
@@ -192,9 +185,9 @@ async fn main() -> Result<()> {
     let tts_service = MyTtsGatewayService {
         http_client: Client::new(),
         tts_edge_service_url: format!("{}/api/v1/synthesize", tts_edge_service_url),
-        tts_coqui_service_url, // Değişkenin kendisi zaten Option<String>
+        tts_coqui_service_url,
     };
-    // --- DEĞİŞİKLİK SONU ---
+
     
     let cert_path = env::var("TTS_GATEWAY_CERT_PATH").context("TTS_GATEWAY_CERT_PATH eksik")?;
     let key_path = env::var("TTS_GATEWAY_KEY_PATH").context("TTS_GATEWAY_KEY_PATH eksik")?;
