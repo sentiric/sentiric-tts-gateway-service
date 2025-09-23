@@ -171,7 +171,6 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     let env = env::var("ENV").unwrap_or_else(|_| "production".to_string());
     
-    // Standart Loglama Yapılandırması
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let subscriber = Registry::default().with(env_filter);
     
@@ -197,19 +196,27 @@ async fn main() -> Result<()> {
     let port = env::var("TTS_GATEWAY_GRPC_PORT").unwrap_or_else(|_| "14011".to_string());
     let addr: SocketAddr = format!("[::]:{}", port).parse()?;
     
-    let tts_edge_service_url = env::var("TTS_EDGE_SERVICE_HTTP_URL").context("TTS_EDGE_SERVICE_HTTP_URL ortam değişkeni bulunamadı!")?;
-    let tts_coqui_service_url = env::var("TTS_COQUI_SERVICE_HTTP_URL")
+    // --- KRİTİK DEĞİŞİKLİK BURADA ---
+    // Artık _TARGET_ sonekli değişkenleri okuyoruz.
+    let tts_edge_service_url = env::var("TTS_EDGE_SERVICE_TARGET_HTTP_URL")
+        .context("TTS_EDGE_SERVICE_TARGET_HTTP_URL ortam değişkeni bulunamadı!")?;
+    let tts_coqui_service_url = env::var("TTS_COQUI_SERVICE_TARGET_HTTP_URL")
         .ok()
+        .filter(|url| !url.is_empty()) // Boşsa None olarak kabul et
         .map(|url| format!("{}/api/v1/synthesize", url));
+    // --- DEĞİŞİKLİK SONA ERDİ ---
     
     if let Some(url) = &tts_coqui_service_url {
         info!(coqui_url = %url, "Coqui-TTS entegrasyonu aktif.");
     } else {
-        warn!("TTS_COQUI_SERVICE_HTTP_URL ortam değişkeni ayarlanmamış. Coqui-TTS (ses klonlama) özelliği devre dışı.");
+        warn!("TTS_COQUI_SERVICE_TARGET_HTTP_URL ortam değişkeni ayarlanmamış. Coqui-TTS (ses klonlama) özelliği devre dışı.");
     }
 
     let tts_service = MyTtsGatewayService {
         http_client: Client::new(),
+        // DÜZELTME: Edge ve Coqui URL'lerine /api/v1/synthesize eklenmesi
+        // doğrudan service.env'de yapılabilir veya burada eklenebilir.
+        // Şimdilik burada bırakarak daha fazla esneklik sağlıyoruz.
         tts_edge_service_url: format!("{}/api/v1/synthesize", tts_edge_service_url),
         tts_coqui_service_url,
     };
