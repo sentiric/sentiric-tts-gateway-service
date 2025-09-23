@@ -31,15 +31,19 @@ services:
     networks:
       sentiric-net:
         ipv4_address: ${TTS_GATEWAY_IPV4_ADDRESS}
+    # --- KRİTİK EKLEME ---
+    # Bu servis, harici Hugging Face API'lerine eriştiği için
+    # güvenilir DNS çözümleyicilerine sahip olmalıdır.
     dns:
       - ${PRIMARY_DNS:-8.8.8.8}
-      - ${SECONDARY_DNS:-1.1.1.1}        
+      - ${SECONDARY_DNS:-1.1.1.1}
+    # --- EKLEME SONU ---
     restart: always
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "14011"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s   
+      start_period: 30s
     # depends_on:
-    #    tts-edge-service: { condition: service_healthy }
+    #    tts-edge-service: { condition: service_healthy } 
