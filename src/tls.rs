@@ -1,6 +1,6 @@
 // sentiric-tts-gateway-service/src/tls.rs
 use crate::config::AppConfig;
-use anyhow::{Context, Result}; // anyhow::Result ve Context trait'i eklendi
+use anyhow::{Context, Result};
 use tonic::transport::{Certificate, Identity, ServerTlsConfig};
 
 pub async fn load_server_tls_config(config: &AppConfig) -> Result<ServerTlsConfig> {

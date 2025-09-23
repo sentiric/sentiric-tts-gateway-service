@@ -5,15 +5,13 @@ use crate::services::tts_proxy::TtsProxyService;
 use crate::tls::load_server_tls_config;
 use anyhow::{Context, Result};
 use sentiric_contracts::sentiric::tts::v1::text_to_speech_service_server::TextToSpeechServiceServer;
+use std::env;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tonic::transport::Server;
 use tracing::{error, info, warn};
-use tracing_subscriber::{
-    fmt::{self, format::FmtSpan},
-    prelude::*,
-    EnvFilter, Registry,
-};
+// DÜZELTME: Gerekli tüm `tracing_subscriber` bileşenleri import ediliyor.
+use tracing_subscriber::{fmt, prelude::*, EnvFilter, Registry};
 
 pub struct App {
     config: Arc<AppConfig>,
@@ -24,15 +22,19 @@ impl App {
         dotenvy::dotenv().ok();
         let config = Arc::new(AppConfig::load_from_env().context("Konfigürasyon dosyası yüklenemedi")?);
 
-        let env_filter = EnvFilter::try_from_default_env()
-            .or_else(|_| EnvFilter::try_new(&config.rust_log))?;
+        // --- STANDARTLAŞTIRILMIŞ LOGLAMA KURULUMU ---
+        let rust_log_env = env::var("RUST_LOG")
+            .unwrap_or_else(|_| "info,h2=warn,hyper=warn,tower=warn,rustls=warn".to_string());
+        
+        let env_filter = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new(&rust_log_env))?;
         let subscriber = Registry::default().with(env_filter);
         
         if config.env == "development" {
-            subscriber.with(fmt::layer().with_target(true).with_line_number(true).with_span_events(FmtSpan::NONE)).init();
+            subscriber.with(fmt::layer().with_target(true).with_line_number(true)).init();
         } else {
-            subscriber.with(fmt::layer().json().with_current_span(true).with_span_list(true).with_span_events(FmtSpan::NONE)).init();
+            subscriber.with(fmt::layer().json().with_current_span(true).with_span_list(true)).init();
         }
+        // --- LOGLAMA KURULUMU SONU ---
 
         info!(
             service_name = "sentiric-tts-gateway-service",
@@ -50,9 +52,7 @@ impl App {
 
         let server_handle = tokio::spawn(async move {
             let tls_config = load_server_tls_config(&self.config).await?;
-            
             let proxy_service = Arc::new(TtsProxyService::new(self.config.clone()));
-
             let grpc_service = MyTtsGatewayService::new(proxy_service);
             
             info!(address = %self.config.grpc_listen_addr, "Güvenli gRPC sunucusu dinlemeye başlıyor...");
