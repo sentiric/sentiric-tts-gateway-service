@@ -5,7 +5,7 @@ use reqwest::Client;
 use sentiric_contracts::sentiric::tts::v1::{SynthesizeRequest, SynthesizeResponse};
 use serde::Serialize;
 use std::sync::Arc;
-use tracing::{error, info}; // `warn` kullanılmıyorsa kaldırılabilir, ama genellikle kalması iyidir.
+use tracing::info;
 
 #[derive(Serialize)]
 struct EdgeTtsRequest<'a> {

@@ -1,12 +1,11 @@
 // sentiric-tts-gateway-service/src/grpc/service.rs
-use crate::error::GatewayError;
 use crate::services::tts_proxy::TtsProxyService;
 use sentiric_contracts::sentiric::tts::v1::{
     text_to_speech_service_server::TextToSpeechService, SynthesizeRequest, SynthesizeResponse,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument};
 
 pub struct MyTtsGatewayService {
     proxy_service: Arc<TtsProxyService>,

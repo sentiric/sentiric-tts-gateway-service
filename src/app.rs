@@ -5,7 +5,6 @@ use crate::services::tts_proxy::TtsProxyService;
 use crate::tls::load_server_tls_config;
 use anyhow::{Context, Result};
 use sentiric_contracts::sentiric::tts::v1::text_to_speech_service_server::TextToSpeechServiceServer;
-use std::env;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tonic::transport::Server;
