@@ -13,10 +13,14 @@ dotenvy = "0.15"
 anyhow = "1.0"
 config = "0.14"
 
-reqwest = { version = "0.12", features = ["json"] }
+# --- DEĞİŞİKLİK BURADA ---
+reqwest = { version = "0.12", features = ["json"] } # json özelliği eklendi
+# --- DEĞİŞİKLİK SONA ERDİ ---
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 url = "2.5"
+thiserror = "1.0" # Hata yönetimi için eklendi
 
 # Yeni güncellenen kontratları kullan
 [dependencies.sentiric-contracts]
