@@ -31,6 +31,12 @@ Bu servis, platformu tek bir TTS teknolojisine bağımlı olmaktan kurtarır ve 
     *   `sentiric-elevenlabs-tts-service` (gRPC/REST)
     *   `Redis`: Önbellek okuma/yazma.
 
+## 🚀 Yerel Geliştirme
+
+1.  **Bağımlılıkları Yükleyin:**
+2.  **Ortam Değişkenlerini Ayarlayın:** `.env.example` dosyasını `.env` olarak kopyalayın ve gerekli değişkenleri doldurun.
+3.  **Servisi Çalıştırın:**    
+
 ## 🤝 Katkıda Bulunma
 
 Bu servis henüz geliştirme aşamasında olmasa da, fikirlerinizi ve önerilerinizi `sentiric-governance` reposunda bir `Issue` açarak paylaşabilirsiniz.
