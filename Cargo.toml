@@ -12,17 +12,18 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenvy = "0.15"
 anyhow = "1.0"
 config = "0.14"
-
-# --- DEĞİŞİKLİK BURADA ---
-reqwest = { version = "0.12", features = ["json"] } # json özelliği eklendi
-# --- DEĞİŞİKLİK SONA ERDİ ---
-
+reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 url = "2.5"
-thiserror = "1.0" # Hata yönetimi için eklendi
+thiserror = "1.0"
 
-# Yeni güncellenen kontratları kullan
+# --- KRİTİK EKLEME ---
+# HTTP Sunucusu (Health Check için)
+hyper = { version = "0.14.28", features = ["full"] }
+# --- EKLEME SONU ---
+
+# Kontratların en son versiyonunu kullan
 [dependencies.sentiric-contracts]
 git = "https://github.com/sentiric/sentiric-contracts.git"
-tag = "v1.8.9"
+tag = "v1.8.12"
