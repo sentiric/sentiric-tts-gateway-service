@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 #[derive(Debug)]
 pub struct AppConfig {
     pub grpc_listen_addr: SocketAddr,
+    pub http_listen_addr: SocketAddr, // YENİ ALAN
     pub tts_edge_service_url: String,
     pub tts_coqui_service_url: Option<String>,
     pub env: String,
@@ -20,9 +21,13 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn load_from_env() -> Result<Self> {
-        let port = env::var("TTS_GATEWAY_GRPC_PORT").unwrap_or_else(|_| "14011".to_string());
-        let addr: SocketAddr = format!("[::]:{}", port).parse()?;
+        let grpc_port = env::var("TTS_GATEWAY_GRPC_PORT").unwrap_or_else(|_| "14011".to_string());
+        let grpc_addr: SocketAddr = format!("[::]:{}", grpc_port).parse()?;
 
+        // YENİ: HTTP portunu da env'den oku
+        let http_port = env::var("TTS_GATEWAY_HTTP_PORT").unwrap_or_else(|_| "14010".to_string());
+        let http_addr: SocketAddr = format!("[::]:{}", http_port).parse()?;
+            
         let tts_edge_service_url = env::var("TTS_EDGE_SERVICE_TARGET_HTTP_URL")
             .context("ZORUNLU: TTS_EDGE_SERVICE_TARGET_HTTP_URL eksik")?;
         let tts_coqui_service_url = env::var("TTS_COQUI_SERVICE_TARGET_HTTP_URL")
@@ -31,7 +36,8 @@ impl AppConfig {
             .map(|url| format!("{}/api/v1/synthesize", url));
             
         Ok(AppConfig {
-            grpc_listen_addr: addr,
+            grpc_listen_addr: grpc_addr,
+            http_listen_addr: http_addr, // YENİ ATAMA
             tts_edge_service_url: format!("{}/api/v1/synthesize", tts_edge_service_url),
             tts_coqui_service_url,
             env: env::var("ENV").unwrap_or_else(|_| "production".to_string()),
