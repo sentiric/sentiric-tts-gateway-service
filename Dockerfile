@@ -61,4 +61,5 @@ RUN chmod +x ./sentiric-tts-gateway-service
 # Güvenlik için root olmayan bir kullanıcıyla çalıştır
 RUN useradd -m -u 1001 appuser
 USER appuser
+EXPOSE 14010 14011 14012
 ENTRYPOINT ["./sentiric-tts-gateway-service"]
