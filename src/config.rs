@@ -21,11 +21,11 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn load_from_env() -> Result<Self> {
-        let grpc_port = env::var("TTS_GATEWAY_GRPC_PORT").unwrap_or_else(|_| "14011".to_string());
+        let grpc_port = env::var("TTS_GATEWAY_SERVICE_GRPC_PORT").unwrap_or_else(|_| "14011".to_string());
         let grpc_addr: SocketAddr = format!("[::]:{}", grpc_port).parse()?;
 
         // YENİ: HTTP portunu da env'den oku
-        let http_port = env::var("TTS_GATEWAY_HTTP_PORT").unwrap_or_else(|_| "14010".to_string());
+        let http_port = env::var("TTS_GATEWAY_SERVICE_HTTP_PORT").unwrap_or_else(|_| "14010".to_string());
         let http_addr: SocketAddr = format!("[::]:{}", http_port).parse()?;
             
         let tts_edge_service_url = env::var("TTS_EDGE_SERVICE_TARGET_HTTP_URL")
@@ -45,8 +45,8 @@ impl AppConfig {
             service_version: env::var("SERVICE_VERSION").unwrap_or_else(|_| "0.1.0".to_string()),
             git_commit: env::var("GIT_COMMIT").unwrap_or_else(|_| "unknown".to_string()),
             build_date: env::var("BUILD_DATE").unwrap_or_else(|_| "unknown".to_string()),
-            cert_path: env::var("TTS_GATEWAY_CERT_PATH").context("ZORUNLU: TTS_GATEWAY_CERT_PATH eksik")?,
-            key_path: env::var("TTS_GATEWAY_KEY_PATH").context("ZORUNLU: TTS_GATEWAY_KEY_PATH eksik")?,
+            cert_path: env::var("TTS_GATEWAY_SERVICE_CERT_PATH").context("ZORUNLU: TTS_GATEWAY_SERVICE_CERT_PATH eksik")?,
+            key_path: env::var("TTS_GATEWAY_SERVICE_KEY_PATH").context("ZORUNLU: TTS_GATEWAY_SERVICE_KEY_PATH eksik")?,
             ca_path: env::var("GRPC_TLS_CA_PATH").context("ZORUNLU: GRPC_TLS_CA_PATH eksik")?,
         })
     }
