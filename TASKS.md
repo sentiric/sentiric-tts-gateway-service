@@ -1,13 +1,20 @@
-# ⚡ Sentiric TTS Gateway Service - Görev Listesi
+# ⚡ TTS Gateway Service - Görev Listesi
 
-Bu servisin mevcut ve gelecekteki tüm geliştirme görevleri, platformun merkezi görev yönetimi reposu olan **`sentiric-tasks`**'ta yönetilmektedir.
+Bu liste, bu repoyu devralacak geliştirici için öncelikli işleri sıralar.
 
-➡️ **[Aktif Görev Panosuna Git](https://github.com/sentiric/sentiric-tasks/blob/main/TASKS.md)**
+## 🔴 Faz 1: İskelet ve Bağlantılar
+- [ ] **Protobuf Entegrasyonu:** `sentiric-contracts` reposunu `Cargo.toml`'a git bağımlılığı olarak ekle ve `build.rs` ile derle.
+- [ ] **Upstream Client (Edge):** `reqwest` kullanarak en basit motor olan `tts-coqui-service`'e HTTP POST isteği atan ve dönen stream'i yakalayan bir istemci yaz.
+- [ ] **gRPC Server:** `tonic` kullanarak `Synthesize` metodunu implemente et. Gelen isteği alıp Edge Client'a ilet.
 
-# 📌 Görev Listesi
+## 🟡 Faz 2: Akıllı Yönlendirme ve Coqui
+- [ ] **Routing Logic:** `LOGIC.md`'deki tabloya göre `voice_selector` parse eden bir `Router` struct'ı yaz.
+- [ ] **Upstream Client (Coqui):** Coqui servisine istek atan istemciyi yaz.
+- [ ] **Fallback Mekanizması:** Eğer Coqui hata dönerse otomatik olarak Edge client'ı çağıran `retry` mantığını ekle.
 
-- [ ] **Altyapı:** Proje iskeletinin oluşturulması. (Şu anki aşama)
-- [ ] **Core:** Config ve Logger modüllerinin yazılması.
-- [ ] **gRPC:** Sentiric Contracts entegrasyonu.
-- [ ] **Logic:** Redis Cache implementasyonu.
-- [ ] **Logic:** Upstream (Coqui/Edge) Client implementasyonu.
+## 🟢 Faz 3: Performans ve Caching
+- [ ] **Redis Cache:** Gelen metnin hash'ini alıp Redis'te var mı diye sor. Varsa direkt sesi dön.
+- [ ] **Concurrency:** `Tokio` task'leri ile her isteği non-blocking olarak işle.
+
+## 🔵 Faz 4: Güvenlik
+- [ ] **mTLS:** `tonic` TLS konfigürasyonunu `.env`'den gelen sertifikalarla aktif et.
