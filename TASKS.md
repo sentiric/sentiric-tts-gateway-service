@@ -4,5 +4,10 @@ Bu servisin mevcut ve gelecekteki tüm geliştirme görevleri, platformun merkez
 
 ➡️ **[Aktif Görev Panosuna Git](https://github.com/sentiric/sentiric-tasks/blob/main/TASKS.md)**
 
----
-Bu belge, servise özel, çok küçük ve acil görevler için geçici bir not defteri olarak kullanılabilir.*
+# 📌 Görev Listesi
+
+- [ ] **Altyapı:** Proje iskeletinin oluşturulması. (Şu anki aşama)
+- [ ] **Core:** Config ve Logger modüllerinin yazılması.
+- [ ] **gRPC:** Sentiric Contracts entegrasyonu.
+- [ ] **Logic:** Redis Cache implementasyonu.
+- [ ] **Logic:** Upstream (Coqui/Edge) Client implementasyonu.

@@ -1,10 +1,12 @@
-// sentiric-tts-gateway-service/src/main.rs
+mod config;
+mod app;
+mod error;
+
 use anyhow::Result;
-use sentiric_tts_gateway_service::app::App;
+use app::App;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Uygulamanın başlatılması ve çalıştırılması sorumluluğu
-    // tamamen 'app' modülüne devredildi.
+    // Uygulama yaşam döngüsünü başlat
     App::bootstrap().await?.run().await
 }

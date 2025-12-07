@@ -1,0 +1,20 @@
+networks:
+  sentiric-net:
+    name: "${NETWORK_NAME:-sentiric.cloud}"
+    driver: bridge
+
+services:
+  tts-gateway-service:
+    container_name: sentiric-tts-gateway
+    restart: always
+    networks:
+      - sentiric-net
+    ports:
+      - "14010:14010"
+      - "14011:14011"
+      - "14012:14012"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:14010/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

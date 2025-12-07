@@ -1,65 +1,39 @@
-# --- STAGE 1: Builder ---
-FROM rust:1.88-slim-bookworm AS builder
-
-# Gerekli derleme araçlarını kur
-RUN apt-get update && \
-    apt-get install -y \
-    protobuf-compiler \
-    git \
-    curl \
-    libssl-dev \
-    pkg-config \
-    && \
-    curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf && \
-    chmod +x /usr/local/bin/buf && \
-    rm -rf /var/lib/apt/lists/*
-
-# YENİ: Build argümanlarını tanımla
-ARG GIT_COMMIT
-ARG BUILD_DATE
-ARG SERVICE_VERSION
-
+# --- STAGE 1: Chef (Caching Dependencies) ---
+FROM lukemathwalker/cargo-chef:latest-rust-1.77-bookworm AS chef
 WORKDIR /app
 
+# --- STAGE 2: Planner ---
+FROM chef AS planner
 COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-# YENİ: Build-time environment değişkenlerini ayarla
-ENV GIT_COMMIT=${GIT_COMMIT}
-ENV BUILD_DATE=${BUILD_DATE}
-ENV SERVICE_VERSION=${SERVICE_VERSION}
+# --- STAGE 3: Builder ---
+FROM chef AS builder 
+COPY --from=planner /app/recipe.json recipe.json
+# Build dependencies - this is the caching layer!
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+RUN cargo chef cook --release --recipe-path recipe.json
 
-# Derlemeyi yap
-RUN cargo build --release
+# Build application
+COPY . .
+RUN cargo build --release --bin sentiric-tts-gateway-service
 
-# --- STAGE 2: Final (Minimal) Image ---
-FROM debian:bookworm-slim
+# --- STAGE 4: Runtime ---
+FROM debian:bookworm-slim AS runtime
 
-# --- Çalışma zamanı sistem bağımlılıkları ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    netcat-openbsd \
-    curl \
     ca-certificates \
+    libssl-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# YENİ: Build argümanlarını tekrar tanımla ki runtime'da da kullanılabilsin
-ARG GIT_COMMIT
-ARG BUILD_DATE
-ARG SERVICE_VERSION
-
-# YENİ: Argümanları environment değişkenlerine ata
-ENV GIT_COMMIT=${GIT_COMMIT}
-ENV BUILD_DATE=${BUILD_DATE}
-ENV SERVICE_VERSION=${SERVICE_VERSION}
-
-WORKDIR /app
-
-COPY --from=builder /app/target/release/sentiric-tts-gateway-service .
-
-# Kopyalanan dosyaya çalıştırma izni ver
-RUN chmod +x ./sentiric-tts-gateway-service
-
-# Güvenlik için root olmayan bir kullanıcıyla çalıştır
 RUN useradd -m -u 1001 appuser
 USER appuser
+WORKDIR /app
+
+COPY --from=builder /app/target/release/sentiric-tts-gateway-service /app/
+
+ENV RUST_LOG=info
 EXPOSE 14010 14011 14012
+
 ENTRYPOINT ["./sentiric-tts-gateway-service"]
