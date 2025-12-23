@@ -1,29 +1,26 @@
 [package]
 name = "sentiric-tts-gateway-service"
-version = "0.1.0"
+version = "1.1.0"
 edition = "2021"
-authors = ["Sentiric Team"]
 
 [dependencies]
-# Async Runtime & Web
+# Async & Runtime
 tokio = { version = "1.36", features = ["full"] }
-axum = { version = "0.7", features = ["json", "http2"] } 
-tower = { version = "0.4", features = ["util", "timeout", "load_shed"] }
-tower-http = { version = "0.5", features = ["trace", "cors"] }
-hyper = { version = "1.0", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+async-stream = "0.3"
+futures = "0.3"
 
-# gRPC & Protobuf
+# gRPC
 tonic = { version = "0.11", features = ["tls", "gzip"] }
 prost = "0.12"
-
-# Data & Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-bytes = "1.5"
 
 # Config & Environment
 config = "0.14"
 dotenvy = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+url = "2.5"
+
+# Error Handling
 thiserror = "1.0"
 anyhow = "1.0"
 
@@ -31,14 +28,10 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# Client & Network
-reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
-url = "2.5"
-
 # Sentiric Ecosystem
 [dependencies.sentiric-contracts]
 git = "https://github.com/sentiric/sentiric-contracts.git"
-branch = "main"
+tag = "v1.12.3"
 
 [build-dependencies]
 tonic-build = "0.11"

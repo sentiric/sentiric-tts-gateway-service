@@ -1,12 +1,14 @@
-mod config;
 mod app;
+mod config;
 mod error;
+mod grpc;
+mod clients;
+mod tls;
 
 use anyhow::Result;
 use app::App;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Uygulama yaşam döngüsünü başlat
-    App::bootstrap().await?.run().await
+    App::run().await
 }

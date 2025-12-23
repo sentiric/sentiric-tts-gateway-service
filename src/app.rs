@@ -1,38 +1,40 @@
 use crate::config::AppConfig;
+use crate::clients::coqui::CoquiClient;
+use crate::clients::mms::MmsClient;
+use crate::grpc::server::TtsGateway;
+use crate::tls::load_server_tls_config;
+use sentiric_contracts::sentiric::tts::v1::tts_gateway_service_server::TtsGatewayServiceServer;
+use tonic::transport::Server;
+use std::net::SocketAddr;
+use tracing::info;
 use anyhow::Result;
-use tracing::{info, error};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use std::sync::Arc;
 
-pub struct App {
-    config: AppConfig,
-}
+pub struct App;
 
 impl App {
-    pub async fn bootstrap() -> Result<Self> {
-        // 1. Env Yükle
-        dotenvy::dotenv().ok();
-        
-        // 2. Config Yükle
-        let config = AppConfig::load()?;
+    pub async fn run() -> Result<()> {
+        let config = Arc::new(AppConfig::load()?);
 
-        // 3. Logger Başlat
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::new(&config.rust_log))
-            .with(fmt::layer())
+        tracing_subscriber::fmt()
+            .with_env_filter(&config.rust_log)
             .init();
 
-        info!("🚀 TTS Gateway Service v{} başlatılıyor...", config.service_version);
-        Ok(Self { config })
-    }
+        info!("🚀 TTS Gateway Service starting on {}:{}", config.host, config.grpc_port);
 
-    pub async fn run(self) -> Result<()> {
-        info!("Servisler ayağa kaldırılıyor (HTTP: {}, gRPC: {})...", 
-              self.config.http_port, self.config.grpc_port);
-        
-        // Burada Tokio spawn ile gRPC ve HTTP sunucuları başlatılacak
-        // Şimdilik sadece bekletiyoruz
-        tokio::signal::ctrl_c().await?;
-        info!("🛑 Kapatılıyor...");
+        let coqui_client = CoquiClient::connect(&config).await?;
+        let mms_client = MmsClient::connect(&config).await?;
+
+        let addr: SocketAddr = format!("{}:{}", config.host, config.grpc_port).parse()?;
+        let gateway_service = TtsGateway::new(coqui_client, mms_client);
+        let tls_config = load_server_tls_config(&config).await?;
+
+        Server::builder()
+            .tls_config(tls_config)?
+            .add_service(TtsGatewayServiceServer::new(gateway_service))
+            .serve(addr)
+            .await?;
+
         Ok(())
     }
 }
