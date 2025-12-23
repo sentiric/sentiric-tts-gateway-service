@@ -4,6 +4,7 @@ mod error;
 mod grpc;
 mod clients;
 mod tls;
+// services modülü kaldırıldı, artık doğrudan grpc içinde implemente ediliyor
 
 use anyhow::Result;
 use app::App;

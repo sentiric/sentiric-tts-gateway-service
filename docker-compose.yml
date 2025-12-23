@@ -1,20 +1,39 @@
 networks:
   sentiric-net:
-    name: "${NETWORK_NAME:-sentiric.cloud}"
-    driver: bridge
+    # Bu ağın dışarıdan yönetildiğini belirtiyoruz.
+    # docker network create ile bir kere oluşturulacak.
+    name: sentiric-net
+    external: true
 
 services:
+  # 🗣️ TTS GATEWAY SERVICE
   tts-gateway-service:
+    image: ghcr.io/sentiric/sentiric-tts-gateway-service:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: sentiric-tts-gateway
-    restart: always
-    networks:
-      - sentiric-net
+    volumes:
+      - ../sentiric-certificates:/sentiric-certificates:ro
+    environment:
+      - ENV=production
+      - RUST_LOG=info,sentiric_tts_gateway_service=debug
+      
+      # Upstream Services (mTLS URLs)
+      - TTS_COQUI_SERVICE_URL=https://tts-coqui-service:14031
+      - TTS_MMS_SERVICE_URL=https://tts-mms-service:14061
+      
+      # Security (mTLS)
+      - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
+      - TTS_GATEWAY_SERVICE_CERT_PATH=/sentiric-certificates/certs/tts-gateway-service.crt
+      - TTS_GATEWAY_SERVICE_KEY_PATH=/sentiric-certificates/certs/tts-gateway-service.key
+      
     ports:
-      - "14010:14010"
-      - "14011:14011"
-      - "14012:14012"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:14010/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      - "14010:14010" # HTTP Health
+      - "14011:14011" # gRPC
+      - "14012:14012" # Metrics
+    networks:
+      sentiric-net:
+        # Sabit IP, diğer servislerin bu gateway'i bulması için kritik
+        ipv4_address: ${TTS_GATEWAY_SERVICE_IPV4_ADDRESS:-10.88.40.1}
+    restart: always

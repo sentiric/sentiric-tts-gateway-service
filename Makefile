@@ -1,4 +1,9 @@
-.PHONY: help setup up down logs test build clean
+.PHONY: help setup network up down logs test build clean
+
+# Ağ Ayarları
+NETWORK_NAME := sentiric-net
+SUBNET := 10.88.0.0/16
+GATEWAY := 10.88.0.1
 
 help: ## Komutları listeler
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -6,14 +11,19 @@ help: ## Komutları listeler
 setup: ## Ortam dosyasını hazırlar
 	@if [ ! -f .env ]; then cp .env.example .env; echo "✅ .env oluşturuldu."; fi
 
-up: setup ## Geliştirme ortamını başlatır
-	docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+network: ## Ortak Docker ağını oluşturur (Varsa atlar)
+	@docker network inspect $(NETWORK_NAME) >/dev/null 2>&1 || \
+	(echo "🌐 Creating network $(NETWORK_NAME)..." && \
+	docker network create --driver bridge --subnet $(SUBNET) --gateway $(GATEWAY) $(NETWORK_NAME))
 
-down: ## Ortamı durdurur
-	docker compose -f docker-compose.yml -f docker-compose.dev.yml down --remove-orphans
+up: setup network ## Servisi başlatır (Önce ağ kontrolü yapar)
+	docker compose up --build -d
+
+down: ## Servisi durdurur
+	docker compose down --remove-orphans
 
 logs: ## Logları izler
-	docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f tts-gateway-service
+	docker compose logs -f tts-gateway-service
 
 test: ## Birim testleri çalıştırır
 	cargo test

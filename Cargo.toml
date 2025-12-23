@@ -1,16 +1,17 @@
 [package]
 name = "sentiric-tts-gateway-service"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
+authors = ["Sentiric Team"]
 
 [dependencies]
-# Async & Runtime
+# Async Runtime & Web
 tokio = { version = "1.36", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 async-stream = "0.3"
 futures = "0.3"
 
-# gRPC
+# gRPC & Protobuf
 tonic = { version = "0.11", features = ["tls", "gzip"] }
 prost = "0.12"
 

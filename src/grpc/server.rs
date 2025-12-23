@@ -3,7 +3,8 @@ use crate::clients::mms::MmsClient;
 use sentiric_contracts::sentiric::tts::v1::tts_gateway_service_server::TtsGatewayService;
 use sentiric_contracts::sentiric::tts::v1::{
     SynthesizeStreamRequest, SynthesizeStreamResponse, 
-    CoquiSynthesizeStreamRequest, MmsSynthesizeStreamRequest
+    CoquiSynthesizeStreamRequest, MmsSynthesizeStreamRequest,
+    ListVoicesRequest, ListVoicesResponse
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
@@ -32,7 +33,7 @@ impl TtsGatewayService for TtsGateway {
          Err(Status::unimplemented("Use SynthesizeStream for better performance"))
     }
     
-    async fn list_voices(&self, _request: Request<sentiric_contracts::sentiric::tts::v1::ListVoicesRequest>) -> Result<Response<sentiric_contracts::sentiric::tts::v1::ListVoicesResponse>, Status> {
+    async fn list_voices(&self, _request: Request<ListVoicesRequest>) -> Result<Response<ListVoicesResponse>, Status> {
          Err(Status::unimplemented("ListVoices not implemented yet"))
     }
 
@@ -41,55 +42,81 @@ impl TtsGatewayService for TtsGateway {
         &self,
         request: Request<SynthesizeStreamRequest>,
     ) -> Result<Response<Self::SynthesizeStreamStream>, Status> {
-        let req = request.into_inner();
-        let voice_selector = req.voice_id; // "coqui:...", "mms:..."
         
-        // Hangi provider kullanıldı bilgisini response'a eklemek için
-        let mut provider_used = "unknown".to_string();
+        // 1. Metadata / Trace ID Extraction
+        let trace_id = request.metadata()
+            .get("x-trace-id")
+            .and_then(|m| m.to_str().ok())
+            .map(|s| s.to_string());
+
+        let req = request.into_inner();
+        let voice_selector = req.voice_id.clone(); 
+        
+        info!(
+            "TTS Request received. Selector: {}, TraceID: {}", 
+            voice_selector, 
+            trace_id.as_deref().unwrap_or("none")
+        );
 
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
-        // --- ROUTING ---
+        // 2. Routing Logic
         if voice_selector.starts_with("mms:") {
-            provider_used = "mms".to_string();
-            info!("Routing to MMS: {}", voice_selector);
-            
-            let mms_req = MmsSynthesizeStreamRequest {
-                text: req.text,
-                language_code: "tur".to_string(), // MMS dil kodu
-                speed: req.prosody.map(|p| p.rate as f32).unwrap_or(1.0),
-                sample_rate: 16000,
+            // --- MMS ROUTE ---
+            let lang_code = if req.voice_id.contains(':') {
+                req.voice_id.split(':').nth(1).unwrap_or("tur").to_string()
+            } else {
+                "tur".to_string()
             };
 
-            let mut stream = self.mms_client.synthesize_stream(mms_req).await
-                .map_err(|e| Status::unavailable(format!("MMS Error: {}", e)))?;
-                
-            tokio::spawn(async move {
-                while let Some(res) = stream.next().await {
-                    match res {
-                        Ok(chunk) => {
-                            let resp = SynthesizeStreamResponse {
-                                audio_content: chunk.audio_chunk,
-                                content_type: "audio/pcm".to_string(),
-                                provider_used: "mms".to_string(),
-                            };
-                            if tx.send(Ok(resp)).await.is_err() { break; }
+            let mms_req = MmsSynthesizeStreamRequest {
+                text: req.text,
+                language_code: lang_code,
+                speed: req.prosody.map(|p| p.rate as f32).unwrap_or(1.0),
+                sample_rate: 16000, // MMS Default
+            };
+
+            // Hata yakalama eklendi
+            match self.mms_client.synthesize_stream(mms_req, trace_id.clone()).await {
+                Ok(mut stream) => {
+                    tokio::spawn(async move {
+                        while let Some(res) = stream.next().await {
+                            match res {
+                                Ok(chunk) => {
+                                    let resp = SynthesizeStreamResponse {
+                                        audio_content: chunk.audio_chunk,
+                                        content_type: "audio/pcm".to_string(),
+                                        provider_used: "mms".to_string(),
+                                    };
+                                    if tx.send(Ok(resp)).await.is_err() { break; }
+                                }
+                                Err(e) => { 
+                                    error!("Upstream (MMS) stream error: {}", e);
+                                    let _ = tx.send(Err(e)).await; 
+                                    break; 
+                                }
+                            }
                         }
-                        Err(e) => { let _ = tx.send(Err(e)).await; break; }
-                    }
+                    });
+                },
+                Err(e) => {
+                    return Err(Status::unavailable(format!("MMS Service Unavailable: {}", e)));
                 }
-            });
+            }
 
         } else {
-            // Default: COQUI
-            provider_used = "coqui".to_string();
-            info!("Routing to Coqui: {}", voice_selector);
-            
+            // --- COQUI ROUTE (Default) ---
+            let _speaker = if voice_selector.starts_with("coqui:") {
+                voice_selector.strip_prefix("coqui:").unwrap_or("").to_string()
+            } else {
+                voice_selector
+            };
+
             let coqui_req = CoquiSynthesizeStreamRequest {
                 text: req.text,
                 language_code: "tr".to_string(),
-                speaker_wav: vec![], // Coqui servisi default'u kullanacak
-                speed: req.prosody.map(|p| p.rate as f32).unwrap_or(1.0),
+                speaker_wav: vec![], 
+                speed: req.prosody.as_ref().map(|p| p.rate as f32).unwrap_or(1.0),
                 temperature: 0.7,
                 top_p: 0.9,
                 top_k: 50.0,
@@ -97,24 +124,33 @@ impl TtsGatewayService for TtsGateway {
                 output_format: "pcm".to_string(),
             };
 
-            let mut stream = self.coqui_client.synthesize_stream(coqui_req).await
-                .map_err(|e| Status::unavailable(format!("Coqui Error: {}", e)))?;
-
-            tokio::spawn(async move {
-                while let Some(res) = stream.next().await {
-                    match res {
-                        Ok(chunk) => {
-                            let resp = SynthesizeStreamResponse {
-                                audio_content: chunk.audio_chunk,
-                                content_type: "audio/pcm".to_string(),
-                                provider_used: "coqui".to_string(),
-                            };
-                            if tx.send(Ok(resp)).await.is_err() { break; }
+            // Hata yakalama eklendi
+            match self.coqui_client.synthesize_stream(coqui_req, trace_id.clone()).await {
+                Ok(mut stream) => {
+                    tokio::spawn(async move {
+                        while let Some(res) = stream.next().await {
+                            match res {
+                                Ok(chunk) => {
+                                    let resp = SynthesizeStreamResponse {
+                                        audio_content: chunk.audio_chunk,
+                                        content_type: "audio/pcm".to_string(),
+                                        provider_used: "coqui".to_string(),
+                                    };
+                                    if tx.send(Ok(resp)).await.is_err() { break; }
+                                }
+                                Err(e) => { 
+                                    error!("Upstream (Coqui) stream error: {}", e);
+                                    let _ = tx.send(Err(e)).await; 
+                                    break; 
+                                }
+                            }
                         }
-                        Err(e) => { let _ = tx.send(Err(e)).await; break; }
-                    }
+                    });
+                },
+                Err(e) => {
+                    return Err(Status::unavailable(format!("Coqui Service Unavailable: {}", e)));
                 }
-            });
+            }
         }
 
         Ok(Response::new(ReceiverStream::new(rx)))
