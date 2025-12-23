@@ -1,54 +1,45 @@
-# 🧠 Mantık ve Yönlendirme Mimarisi
+# 🧠 Mantık ve Yönlendirme Mimarisi (v2.0)
 
 Bu belge, `tts-gateway-service`in bir isteği nasıl işlediğini ve hangi motora yönlendireceğine nasıl karar verdiğini açıklar.
 
 ## 1. Yönlendirme Algoritması (Routing Logic)
 
-Servis, gelen `SynthesizeRequest` içindeki `voice_selector` alanını analiz eder.
+Gateway, gelen `SynthesizeStreamRequest` içindeki `voice_id` alanını analiz eder.
 
-| Ön Ek (Prefix) | Hedef Servis | URL (Env Değişkeni) | Örnek `voice_selector` |
+| Ön Ek (Prefix) | Hedef Servis | Protokol | Örnek `voice_id` |
 | :--- | :--- | :--- | :--- |
-| `coqui:` | **Coqui TTS** | `TTS_COQUI_SERVICE_URL` | `coqui:tr_female_selin` |
-| `edge:` | **Edge TTS** | `TTS_EDGE_SERVICE_URL` | `edge:tr-TR-NeslihanNeural` |
-| `eleven:` | **ElevenLabs** | `TTS_ELEVENLABS_SERVICE_URL` | `eleven:21m00Tcm4TlvDq8ikWAM` |
-| *(Boş/Yok)* | **Edge TTS** | `TTS_EDGE_SERVICE_URL` | *(Varsayılan Fallback)* |
+| `coqui:` | **Coqui TTS** | gRPC Stream | `coqui:F_TR_Genc_Selin/happy` |
+| `mms:` | **MMS TTS** | gRPC Stream | `mms:tr` |
+| *(Diğer)* | **Coqui TTS** | gRPC Stream | *(Varsayılan Fallback)* |
 
-### Algoritma Akışı:
-
-1.  **İstek Al:** `Synthesize(text, voice_selector, ...)`
-2.  **Önbellek Kontrolü:** `Redis` üzerinde bu metin+ses kombinasyonu için önbellek var mı?
-    *   *Varsa:* Önbellekten dön.
-    *   *Yoksa:* Devam et.
-3.  **Motor Seçimi:** `voice_selector` parse edilir.
-4.  **Bağlantı:** Seçilen motorun gRPC veya HTTP Streaming endpoint'ine bağlanılır.
-5.  **Stream:** Gelen `AudioChunk`'lar, anında istemciye `SynthesizeResponse` stream'i olarak iletilir.
-6.  **Hata Yönetimi:**
-    *   Seçilen motor `UNAVAILABLE` dönerse -> **LOGLA** ve **Edge TTS (Fallback)** servisine yönlendir.
-
-## 2. Akış Diyagramı
+## 2. Veri Akış Diyagramı
 
 ```mermaid
 sequenceDiagram
     participant Client as Agent Service
     participant GW as TTS Gateway
     participant Coqui as Coqui Engine
-    participant Edge as Edge Engine
+    participant MMS as MMS Engine
 
-    Client->>GW: Synthesize(text="Merhaba", voice="coqui:ece")
+    Note over Client, GW: mTLS Handshake
+    Client->>GW: SynthesizeStream(voice="mms:tr", text="Merhaba")
     
-    note over GW: Routing: "coqui" prefix detected
+    Note over GW: Router: "mms" detected -> Select MmsClient
+    Note over GW, MMS: mTLS Handshake
     
-    alt Coqui Ayakta
-        GW->>Coqui: Synthesize(text="Merhaba", speaker="ece")
-        loop Streaming
-            Coqui-->>GW: AudioChunk
-            GW-->>Client: AudioChunk
-        end
-    else Coqui Hata Verirse
-        GW->>Edge: Synthesize(text="Merhaba", voice="default")
-        loop Streaming Fallback
-            Edge-->>GW: AudioChunk
-            GW-->>Client: AudioChunk
-        end
+    GW->>MMS: MmsSynthesizeStream(text="Merhaba")
+    
+    loop Audio Streaming
+        MMS-->>GW: MmsResponse(chunk)
+        GW-->>GW: Map to SynthesizeResponse
+        GW-->>Client: SynthesizeResponse(chunk)
     end
 ```
+
+## 3. Güvenlik Mimarisi (mTLS)
+
+Bu servis **Zero Trust** prensibiyle çalışır:
+1.  **Server Modu:** Kendisine bağlanan `Agent/Telephony Service`'in güvenilir olduğunu doğrulamak için CA sertifikasını kullanır.
+2.  **Client Modu:** `Coqui` veya `MMS` servisine bağlanırken kendi kimliğini (Client Certificate) ibraz eder.
+
+Sertifika yolları `config.rs` üzerinden yüklenir ve `src/tls.rs` modülünde işlenir.

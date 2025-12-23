@@ -1,50 +1,26 @@
-# 📋 Teknik Şartname (Specification)
+# 📋 Teknik Şartname
 
 ## 1. Servis Kimliği
 *   **Adı:** `sentiric-tts-gateway-service`
-*   **Dil:** Rust
+*   **Dil:** Rust (Tokio / Tonic)
 *   **Port Bloğu:** 1401X (Harmonik Mimari)
 
-## 2. API Kontratı (gRPC)
+## 2. Kaynak Tüketimi
+*   **CPU:** Idle durumda < %1, Yük altında (500 stream/s) < %15 (Tek Çekirdek)
+*   **RAM:** < 50 MB (Stateless olduğu için)
 
-Servis, `sentiric-contracts` reposundaki `sentiric.tts.v1` paketini implemente eder.
+## 3. API Kontratı
+Servis, `sentiric-contracts` v1.12.3 sürümünü kullanır.
 
-### Proto Tanımı (`tts.proto`)
+### Ana RPC: `SynthesizeStream`
+*   **Girdi:** `SynthesizeStreamRequest`
+    *   `text`: Sentezlenecek metin.
+    *   `voice_id`: Yönlendirme anahtarı (örn: `coqui:ece`).
+    *   `prosody`: Hız, tonlama ayarları.
+*   **Çıktı:** `SynthesizeStreamResponse` (Stream)
+    *   `audio_content`: Ham PCM ses verisi.
+    *   `provider_used`: Hangi motorun kullanıldığı (`coqui` veya `mms`).
 
-```protobuf
-service TextToSpeechService {
-  rpc Synthesize(SynthesizeRequest) returns (stream SynthesizeResponse);
-}
-
-message SynthesizeRequest {
-  string text = 1;              // Sentezlenecek metin (SSML olabilir)
-  string language_code = 2;     // örn: "tr-TR", "en-US"
-  string voice_selector = 3;    // örn: "coqui:ece", "edge:ahmet"
-  float speed = 4;              // 1.0 normal, 0.5 yavaş, 2.0 hızlı
-  float pitch = 5;              // 1.0 normal
-  int32 volume_gain_db = 6;     // Desibel artışı/azalışı
-}
-
-message SynthesizeResponse {
-  bytes audio_content = 1;      // Ham ses verisi (PCM/OPUS)
-  bool is_final = 2;            // Stream bitti mi?
-}
-```
-
-## 3. Ortam Değişkenleri (Environment Variables)
-
-Bu servis çalışmak için aşağıdaki konfigürasyonları `.env` dosyasından veya Docker ortamından bekler:
-
-| Değişken | Zorunlu | Açıklama |
-| :--- | :--- | :--- |
-| `TTS_GATEWAY_SERVICE_GRPC_PORT` | Evet | Dinlenecek gRPC portu (Genelde 14011). |
-| `TTS_COQUI_SERVICE_URL` | Hayır | Coqui motorunun adresi (http://tts-coqui-service:14030). |
-| `TTS_EDGE_SERVICE_URL` | Evet | Edge motorunun adresi (Fallback için zorunlu). |
-| `TTS_ELEVENLABS_SERVICE_URL` | Hayır | ElevenLabs motorunun adresi. |
-| `REDIS_URL` | Evet | Önbellekleme için Redis adresi. |
-
-## 4. Performans Hedefleri
-
-*   **Time-to-First-Byte (TTFB):** < 200ms (İstekten ilk ses paketinin çıkışına kadar geçen süre).
-*   **Throughput:** Tek bir instance, saniyede en az 50 eş zamanlı stream'i yönetebilmelidir.
-*   **Memory Footprint:** Yük altında < 100MB RAM (Rust avantajı).
+## 4. Hata Yönetimi
+*   **Upstream Unavailable:** Hedef motor (örn: Coqui) kapalıysa, anında `Status::UNAVAILABLE` döner ve akış kapatılır.
+*   **Unknown Provider:** Tanımsız bir `voice_id` gelirse varsayılan olarak Coqui denenir.

@@ -1,48 +1,54 @@
 # 🗣️ Sentiric TTS Gateway Service
 
 [![Status](https://img.shields.io/badge/status-active-success.svg)]()
+[![Security](https://img.shields.io/badge/security-mTLS-green.svg)]()
 [![Architecture](https://img.shields.io/badge/architecture-layer_3_gateway-blue.svg)]()
-[![Language](https://img.shields.io/badge/language-Rust-orange.svg)]()
 
-**Sentiric İletişim İşletim Sistemi**'nin "Sözcü"südür. Platformdaki tüm ses sentezleme (Text-to-Speech) isteklerinin tek giriş noktasıdır. İsteğin niteliğine, istenen sesin kalitesine ve maliyet politikasına göre doğru "Uzman Motoru" (Coqui, Edge, ElevenLabs vb.) seçer ve yönetir.
+**Sentiric İletişim İşletim Sistemi**'nin "Sözcü"südür. Platformdaki tüm ses sentezleme (Text-to-Speech) isteklerinin tek güvenli giriş noktasıdır. İsteğin `voice_selector` parametresine göre trafiği doğru "Uzman Motora" (Coqui veya MMS) yönlendirir.
 
-## 🎯 Temel Sorumluluklar
+## 🎯 Temel Yetenekler
 
-1.  **Protokol Soyutlama:** İç servislerden (Agent, Telephony) gelen gRPC isteklerini, arka plandaki motorların anlayacağı formatlara (REST/gRPC) dönüştürür.
-2.  **Akıllı Yönlendirme (Smart Routing):** `voice_selector` parametresine bakarak trafiği yönlendirir (örn: `coqui:ana` -> Coqui Service, `eleven:rachel` -> ElevenLabs).
-3.  **Streaming Proxy:** Arka plandaki motorlardan gelen ses parçalarını (chunks) biriktirmeden, gerçek zamanlı olarak istemciye (RTP sunucusuna) akıtır. Düşük gecikme (Latency) kritiktir.
-4.  **Hata Yönetimi (Failover):** Bir motor çökerse, varsayılan (fallback) motora geçiş yapar.
+1.  **Çoklu Motor Desteği (Multi-Engine Routing):**
+    *   **Coqui XTTS v2:** Duygusal ve yüksek kaliteli sesler (`coqui:` ön eki).
+    *   **Facebook MMS:** Hızlı ve düşük kaynaklı Türkçe sesler (`mms:` ön eki).
+2.  **Güvenli İletişim (Zero Trust):** Hem istemcilerle (Agent) hem de motorlarla (Upstream) olan iletişimi **mTLS** ile şifreler.
+3.  **Gerçek Zamanlı Akış (Streaming):** Motorlardan gelen ses parçalarını (chunks) bellekte biriktirmeden (Zero-Copy) anlık olarak istemciye iletir.
+4.  **Protokol Standardizasyonu:** Tüm motorları `sentiric.tts.v1` gRPC kontratı arkasında soyutlar.
 
 ## 🏗️ Mimari Konum
 
-Bu servis **Katman 3 (Ağ Geçitleri)** seviyesinde yer alır.
-
-*   **Üst Akış (Callers):** `telephony-action-service`, `agent-service`.
-*   **Alt Akış (Downstreams):**
-    *   `tts-coqui-service` (Yüksek Kalite / Yerel)
-    *   Öncelikle Yerel alternatifler planlanıyor...
-    *   `tts-edge-service` (Hızlı / Ücretsiz ( Alternatif))
-    *   `tts-elevenlabs-service` (Premium / Bulut) ( Alternatif)
+*   **Üst Akış (Callers):** `telephony-action-service` (mTLS Client).
+*   **Alt Akış (Upstreams):**
+    *   `tts-coqui-service` (Python / gRPC / mTLS)
+    *   `tts-mms-service` (Python / gRPC / mTLS)
 
 ## 📦 Kurulum ve Çalıştırma
 
 ### Gereksinimler
 *   Rust (1.75+)
-*   Protobuf Compiler (`protoc`)
+*   `sentiric-certificates` tarafından üretilmiş sertifikalar (`/certs` dizininde olmalı).
 
-### Komutlar
+### Ortam Değişkenleri (.env)
 ```bash
-# Ortamı hazırla (.env oluştur)
-make setup
+# Servis Ayarları
+HOST=0.0.0.0
+GRPC_PORT=14011
 
-# Servisi başlat (Docker)
-make up
+# Hedef Motorlar
+TTS_COQUI_URL=http://tts-coqui-service:14031
+TTS_MMS_URL=http://tts-mms-service:14061
 
-# Logları izle
-make logs
+# Güvenlik (Zorunlu)
+GRPC_TLS_CA_PATH=../sentiric-certificates/certs/ca.crt
+TTS_GATEWAY_SERVICE_CERT_PATH=../sentiric-certificates/certs/tts-gateway-service.crt
+TTS_GATEWAY_SERVICE_KEY_PATH=../sentiric-certificates/certs/tts-gateway-service.key
 ```
 
-## 🔌 API ve Portlar
+### Başlatma
+```bash
+# Local Development
+make up
 
-*   **gRPC (14011):** `sentiric.tts.v1.TextToSpeechService` (Ana Servis)
-*   **HTTP (14010):** `/health`, `/metrics` (Operasyonel)
+# Production Build
+cargo build --release
+```
