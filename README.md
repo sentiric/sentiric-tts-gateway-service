@@ -1,6 +1,6 @@
 # 🗣️ Sentiric TTS Gateway Service
 
-[![Status](https://img.shields.io/badge/status-active-success.svg)]()
+[![Status](https://img.shields.io/badge/status-production_ready-success.svg)]()
 [![Security](https://img.shields.io/badge/security-mTLS-green.svg)]()
 [![Architecture](https://img.shields.io/badge/architecture-layer_3_gateway-blue.svg)]()
 
@@ -13,42 +13,45 @@
     *   **Facebook MMS:** Hızlı ve düşük kaynaklı Türkçe sesler (`mms:` ön eki).
 2.  **Güvenli İletişim (Zero Trust):** Hem istemcilerle (Agent) hem de motorlarla (Upstream) olan iletişimi **mTLS** ile şifreler.
 3.  **Gerçek Zamanlı Akış (Streaming):** Motorlardan gelen ses parçalarını (chunks) bellekte biriktirmeden (Zero-Copy) anlık olarak istemciye iletir.
-4.  **Protokol Standardizasyonu:** Tüm motorları `sentiric.tts.v1` gRPC kontratı arkasında soyutlar.
+4.  **Dayanıklılık (Resilience):** Upstream servisler kapalı olsa bile Gateway çökmez (Lazy Connection).
 
 ## 🏗️ Mimari Konum
 
 *   **Üst Akış (Callers):** `telephony-action-service` (mTLS Client).
 *   **Alt Akış (Upstreams):**
-    *   `tts-coqui-service` (Python / gRPC / mTLS)
-    *   `tts-mms-service` (Python / gRPC / mTLS)
+    *   `tts-coqui-service` (Python / gRPC / mTLS / GPU) - Port 14031
+    *   `tts-mms-service` (Python / gRPC / mTLS / GPU) - Port 14061
 
 ## 📦 Kurulum ve Çalıştırma
 
 ### Gereksinimler
-*   Rust (1.75+)
-*   `sentiric-certificates` tarafından üretilmiş sertifikalar (`/certs` dizininde olmalı).
+*   Docker & Docker Compose
+*   NVIDIA GPU (Önerilen)
+*   `sentiric-certificates` sertifikaları
 
-### Ortam Değişkenleri (.env)
+### Başlatma (Full Stack)
+Gateway ve arkasındaki tüm motorları (MMS + Coqui) tek komutla ayağa kaldırır:
+
 ```bash
-# Servis Ayarları
-HOST=0.0.0.0
-GRPC_PORT=14011
-
-# Hedef Motorlar
-TTS_COQUI_URL=http://tts-coqui-service:14031
-TTS_MMS_URL=http://tts-mms-service:14061
-
-# Güvenlik (Zorunlu)
-GRPC_TLS_CA_PATH=../sentiric-certificates/certs/ca.crt
-TTS_GATEWAY_SERVICE_CERT_PATH=../sentiric-certificates/certs/tts-gateway-service.crt
-TTS_GATEWAY_SERVICE_KEY_PATH=../sentiric-certificates/certs/tts-gateway-service.key
-```
-
-### Başlatma
-```bash
-# Local Development
 make up
-
-# Production Build
-cargo build --release
 ```
+
+### Test Etme (Manuel)
+Gateway üzerinden motorları test etmek için (Sertifikalar gerektirir):
+
+```bash
+# MMS Motoru
+grpcurl -insecure -d '{"voice_id": "mms:tur", "text": "Test"}' localhost:14011 sentiric.tts.v1.TtsGatewayService/SynthesizeStream
+
+# Coqui Motoru
+grpcurl -insecure -d '{"voice_id": "coqui:default", "text": "Test"}' localhost:14011 sentiric.tts.v1.TtsGatewayService/SynthesizeStream
+```
+
+## 🛠️ Konfigürasyon
+
+| Değişken | Varsayılan | Açıklama |
+|---|---|---|
+| `TTS_COQUI_SERVICE_URL` | `https://tts-coqui-service:14031` | Coqui Motoru Adresi |
+| `TTS_MMS_SERVICE_URL` | `https://tts-mms-service:14061` | MMS Motoru Adresi |
+| `GRPC_TLS_CA_PATH` | `/certs/ca.crt` | Root CA Yolu |
+

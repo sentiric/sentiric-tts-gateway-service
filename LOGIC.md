@@ -8,38 +8,15 @@ Gateway, gelen `SynthesizeStreamRequest` içindeki `voice_id` alanını analiz e
 
 | Ön Ek (Prefix) | Hedef Servis | Protokol | Örnek `voice_id` |
 | :--- | :--- | :--- | :--- |
-| `coqui:` | **Coqui TTS** | gRPC Stream | `coqui:F_TR_Genc_Selin/happy` |
-| `mms:` | **MMS TTS** | gRPC Stream | `mms:tr` |
-| *(Diğer)* | **Coqui TTS** | gRPC Stream | *(Varsayılan Fallback)* |
+| `mms:` | **MMS TTS** | gRPC Stream (mTLS) | `mms:tr`, `mms:tur` |
+| `coqui:` | **Coqui TTS** | gRPC Stream (mTLS) | `coqui:default`, `coqui:F_TR_Genc_Selin` |
+| *(Diğer)* | **Coqui TTS** | gRPC Stream (mTLS) | *Varsayılan Fallback* |
 
-## 2. Veri Akış Diyagramı
+## 2. Akış (Flow)
 
-```mermaid
-sequenceDiagram
-    participant Client as Agent Service
-    participant GW as TTS Gateway
-    participant Coqui as Coqui Engine
-    participant MMS as MMS Engine
-
-    Note over Client, GW: mTLS Handshake
-    Client->>GW: SynthesizeStream(voice="mms:tr", text="Merhaba")
-    
-    Note over GW: Router: "mms" detected -> Select MmsClient
-    Note over GW, MMS: mTLS Handshake
-    
-    GW->>MMS: MmsSynthesizeStream(text="Merhaba")
-    
-    loop Audio Streaming
-        MMS-->>GW: MmsResponse(chunk)
-        GW-->>GW: Map to SynthesizeResponse
-        GW-->>Client: SynthesizeResponse(chunk)
-    end
-```
-
-## 3. Güvenlik Mimarisi (mTLS)
-
-Bu servis **Zero Trust** prensibiyle çalışır:
-1.  **Server Modu:** Kendisine bağlanan `Agent/Telephony Service`'in güvenilir olduğunu doğrulamak için CA sertifikasını kullanır.
-2.  **Client Modu:** `Coqui` veya `MMS` servisine bağlanırken kendi kimliğini (Client Certificate) ibraz eder.
-
-Sertifika yolları `config.rs` üzerinden yüklenir ve `src/tls.rs` modülünde işlenir.
+1.  **Request:** İstemci `SynthesizeStream` çağırır.
+2.  **Metadata:** `x-trace-id` header'ı okunur ve loglara eklenir.
+3.  **Routing:** `voice_id` parse edilir ve istemci (MmsClient veya CoquiClient) seçilir.
+4.  **Connection:** Seçilen istemci, Upstream servise **mTLS** ile bağlanır (Lazy Connection).
+5.  **Streaming:** Upstream'den gelen ses paketleri (`audio_chunk`), `SynthesizeStreamResponse` formatına sarılarak (Map) istemciye iletilir.
+6.  **Error Handling:** Upstream kapalıysa veya hata dönerse, Gateway `Status::Unavailable` döner.
