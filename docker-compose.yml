@@ -1,12 +1,14 @@
 networks:
   sentiric-net:
-    # Bu ağın dışarıdan yönetildiğini belirtiyoruz.
-    # docker network create ile bir kere oluşturulacak.
     name: sentiric-net
     external: true
 
+volumes:
+  tts-coqui-models:
+  tts-mms-models:
+
 services:
-  # 🗣️ TTS GATEWAY SERVICE
+  # 1. GATEWAY
   tts-gateway-service:
     image: ghcr.io/sentiric/sentiric-tts-gateway-service:latest
     build:
@@ -18,22 +20,81 @@ services:
     environment:
       - ENV=production
       - RUST_LOG=info,sentiric_tts_gateway_service=debug
-      
-      # Upstream Services (mTLS URLs)
       - TTS_COQUI_SERVICE_URL=https://tts-coqui-service:14031
       - TTS_MMS_SERVICE_URL=https://tts-mms-service:14061
-      
-      # Security (mTLS)
       - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
       - TTS_GATEWAY_SERVICE_CERT_PATH=/sentiric-certificates/certs/tts-gateway-service.crt
       - TTS_GATEWAY_SERVICE_KEY_PATH=/sentiric-certificates/certs/tts-gateway-service.key
-      
     ports:
-      - "14010:14010" # HTTP Health
-      - "14011:14011" # gRPC
-      - "14012:14012" # Metrics
+      - "14010:14010"
+      - "14011:14011"
     networks:
       sentiric-net:
-        # Sabit IP, diğer servislerin bu gateway'i bulması için kritik
         ipv4_address: ${TTS_GATEWAY_SERVICE_IPV4_ADDRESS:-10.88.40.1}
     restart: always
+
+  # 2. COQUI ENGINE
+  tts-coqui-service:
+    image: ghcr.io/sentiric/sentiric-tts-coqui-service:latest-gpu
+    build:
+      context: ../sentiric-tts-coqui-service
+      dockerfile: Dockerfile
+    container_name: sentiric-tts-coqui
+    volumes:
+      - ../sentiric-certificates:/sentiric-certificates:ro
+      - tts-coqui-models:/root/.local/share/tts
+    environment:
+      - TTS_COQUI_SERVICE_GRPC_PORT=14031
+      - TTS_COQUI_SERVICE_DEVICE=cuda
+      - TTS_COQUI_SERVICE_LOW_RESOURCE_MODE=true
+      # Security
+      - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
+      - TTS_COQUI_SERVICE_CERT_PATH=/sentiric-certificates/certs/tts-coqui-service.crt
+      - TTS_COQUI_SERVICE_KEY_PATH=/sentiric-certificates/certs/tts-coqui-service.key
+    ports:
+      - "14030:14030"
+      - "14031:14031" # Gateway gRPC Portu
+      - "14032:14032"  
+    networks:
+      sentiric-net:
+        ipv4_address: 10.88.40.3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # 3. MMS ENGINE
+  tts-mms-service:
+    image: ghcr.io/sentiric/sentiric-tts-mms-service:latest-gpu
+    build:
+      context: ../sentiric-tts-mms-service
+      dockerfile: Dockerfile
+    container_name: sentiric-tts-mms
+    volumes:
+      - ../sentiric-certificates:/sentiric-certificates:ro
+      - tts-mms-models:/root/.cache/huggingface
+    environment:
+      - TTS_MMS_SERVICE_GRPC_PORT=14061
+      - TTS_MMS_SERVICE_DEVICE=cuda
+      # Security
+      - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
+      # DÜZELTME: Doğru sertifika yolu
+      - TTS_MMS_SERVICE_CERT_PATH=/sentiric-certificates/certs/tts-mms-service.crt 
+      - TTS_MMS_SERVICE_KEY_PATH=/sentiric-certificates/certs/tts-mms-service.key
+    ports:
+      - "14060:14060"
+      - "14061:14061" # Gateway gRPC Portu
+      - "14062:14062" 
+    networks:
+      sentiric-net:
+        ipv4_address: 10.88.40.6
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

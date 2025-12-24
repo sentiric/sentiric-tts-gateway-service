@@ -23,7 +23,7 @@ down: ## Servisi durdurur
 	docker compose down --remove-orphans
 
 logs: ## Logları izler
-	docker compose logs -f tts-gateway-service
+	docker compose logs -f
 
 test: ## Birim testleri çalıştırır
 	cargo test
