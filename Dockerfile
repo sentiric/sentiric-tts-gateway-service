@@ -11,35 +11,38 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 
-# Protobuf derleyicisini kur (Contracts için gerekli)
+# Protobuf derleyicisini kur
 RUN apt-get update && apt-get install -y protobuf-compiler cmake && rm -rf /var/lib/apt/lists/*
 
-# Bağımlılıkları derle ve cachele
+# Bağımlılıkları derle
 RUN cargo chef cook --release --recipe-path recipe.json
 
-# Kaynak kodları kopyala ve binary'i derle
+# Kaynak kodları kopyala ve derle
 COPY . .
 RUN cargo build --release --bin sentiric-tts-gateway-service
 
 # --- STAGE 4: Runtime (Minimal) ---
 FROM debian:bookworm-slim AS runtime
 
+# curl ve netcat-openbsd ekledik
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl-dev \
     curl \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# Güvenlik: Root olmayan kullanıcı
 RUN useradd -m -u 1001 appuser
 USER appuser
 WORKDIR /app
 
-# Derlenen binary'i al
 COPY --from=builder /app/target/release/sentiric-tts-gateway-service /app/
 
-# Log seviyesi ve portlar
+# Varsayılan Env Vars
 ENV RUST_LOG=info
+ENV TTS_GATEWAY_SERVICE_LISTEN_ADDRESS=0.0.0.0
+ENV TTS_GATEWAY_SERVICE_GRPC_PORT=14011
+
 EXPOSE 14010 14011 14012
 
 ENTRYPOINT ["./sentiric-tts-gateway-service"]

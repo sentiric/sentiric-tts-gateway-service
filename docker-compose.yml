@@ -1,100 +1,155 @@
+name: sentiric
+
+x-ai-service-template: &ai-service-template
+  restart: always
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [ gpu, compute, utility ] # GPU Erişimini Garantiye Al
+  healthcheck:
+    interval: 30s
+    timeout: 10s
+    retries: 10
+    start_period: 60m
+
 networks:
   sentiric-net:
+    driver: bridge
     name: sentiric-net
-    external: true
+    ipam:
+      config:
+        - subnet: ${NETWORK_SUBNET:-10.88.0.0/16}
+          gateway: ${NETWORK_GATEWAY:-10.88.0.1}
 
 volumes:
   tts-coqui-models:
   tts-mms-models:
 
 services:
-  # 1. GATEWAY
+  # =============================================================
+  # KATMAN 3: TTS GATEWAY SERVICE (Rust)
+  # =============================================================
   tts-gateway-service:
     image: ghcr.io/sentiric/sentiric-tts-gateway-service:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: sentiric-tts-gateway
     volumes:
-      - ../sentiric-certificates:/sentiric-certificates:ro
+      - "${CERTIFICATES_REPO_PATH:-../sentiric-certificates}:/sentiric-certificates:ro"
     environment:
+      # --- Config ---
       - ENV=production
-      - RUST_LOG=info,sentiric_tts_gateway_service=debug
+      - RUST_LOG=info,sentiric_tts_gateway=debug
+      
+      # --- Servis Kimliği ---
+      - TTS_GATEWAY_SERVICE_HOST=tts-gateway-service
+      - TTS_GATEWAY_SERVICE_LISTEN_ADDRESS=0.0.0.0
+      - TTS_GATEWAY_SERVICE_HTTP_PORT=14010
+      - TTS_GATEWAY_SERVICE_GRPC_PORT=14011
+      - TTS_GATEWAY_SERVICE_METRICS_PORT=14012
+
+      # --- Hedef Servisler ---
       - TTS_COQUI_SERVICE_URL=https://tts-coqui-service:14031
       - TTS_MMS_SERVICE_URL=https://tts-mms-service:14061
+    
+      # --- Güvenlik (mTLS Client & Server) ---
       - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
       - TTS_GATEWAY_SERVICE_CERT_PATH=/sentiric-certificates/certs/tts-gateway-service.crt
       - TTS_GATEWAY_SERVICE_KEY_PATH=/sentiric-certificates/certs/tts-gateway-service.key
+
     ports:
       - "14010:14010"
       - "14011:14011"
+      - "14012:14012"
     networks:
       sentiric-net:
-        ipv4_address: ${TTS_GATEWAY_SERVICE_IPV4_ADDRESS:-10.88.40.1}
+        ipv4_address: 10.88.40.1
     restart: always
+    # Gateway sadece gRPC dinlediği için netcat ile TCP kontrolü
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "14011" ]
+      interval: 10s
+      timeout: 5s
+      retries: 50
+    depends_on:
+      tts-coqui-service:
+        condition: service_healthy
+      tts-mms-service:
+        condition: service_healthy
 
-  # 2. COQUI ENGINE
+  # =============================================================
+  # KATMAN 4: TTS COQUI ENGINE (Python / GPU)
+  # =============================================================
   tts-coqui-service:
+    <<: *ai-service-template
     image: ghcr.io/sentiric/sentiric-tts-coqui-service:latest-gpu
-    build:
-      context: ../sentiric-tts-coqui-service
-      dockerfile: Dockerfile
-    container_name: sentiric-tts-coqui
     volumes:
-      - ../sentiric-certificates:/sentiric-certificates:ro
+      - "${CERTIFICATES_REPO_PATH:-../sentiric-certificates}:/sentiric-certificates:ro"
       - tts-coqui-models:/root/.local/share/tts
     environment:
+      # --- Ağ ---
+      - TTS_COQUI_SERVICE_HTTP_PORT=14030
       - TTS_COQUI_SERVICE_GRPC_PORT=14031
+      
+      # --- Performans ---
       - TTS_COQUI_SERVICE_DEVICE=cuda
       - TTS_COQUI_SERVICE_LOW_RESOURCE_MODE=true
-      # Security
+      
+      # --- Güvenlik (mTLS Server) ---
+      # Python kodu bu değişken isimlerini bekler
       - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
       - TTS_COQUI_SERVICE_CERT_PATH=/sentiric-certificates/certs/tts-coqui-service.crt
       - TTS_COQUI_SERVICE_KEY_PATH=/sentiric-certificates/certs/tts-coqui-service.key
+      
     ports:
       - "14030:14030"
-      - "14031:14031" # Gateway gRPC Portu
-      - "14032:14032"  
+      - "14031:14031"
     networks:
       sentiric-net:
         ipv4_address: 10.88.40.3
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # Python servisi HTTP (FastAPI) açar
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:14030/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10m
 
-  # 3. MMS ENGINE
+  # =============================================================
+  # KATMAN 4: TTS MMS ENGINE (Python / GPU)
+  # =============================================================
   tts-mms-service:
+    <<: *ai-service-template
     image: ghcr.io/sentiric/sentiric-tts-mms-service:latest-gpu
-    build:
-      context: ../sentiric-tts-mms-service
-      dockerfile: Dockerfile
-    container_name: sentiric-tts-mms
     volumes:
-      - ../sentiric-certificates:/sentiric-certificates:ro
+      - "${CERTIFICATES_REPO_PATH:-../sentiric-certificates}:/sentiric-certificates:ro"
       - tts-mms-models:/root/.cache/huggingface
     environment:
+      # --- Ağ ---
+      - TTS_MMS_SERVICE_HTTP_PORT=14060
       - TTS_MMS_SERVICE_GRPC_PORT=14061
+      
+      # --- Performans ---
       - TTS_MMS_SERVICE_DEVICE=cuda
-      # Security
+      
+      # --- Güvenlik (mTLS Server) ---
       - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
-      # DÜZELTME: Doğru sertifika yolu
-      - TTS_MMS_SERVICE_CERT_PATH=/sentiric-certificates/certs/tts-mms-service.crt 
+      - TTS_MMS_SERVICE_CERT_PATH=/sentiric-certificates/certs/tts-mms-service.crt
       - TTS_MMS_SERVICE_KEY_PATH=/sentiric-certificates/certs/tts-mms-service.key
+      
     ports:
       - "14060:14060"
-      - "14061:14061" # Gateway gRPC Portu
-      - "14062:14062" 
+      - "14061:14061"
     networks:
       sentiric-net:
         ipv4_address: 10.88.40.6
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # Python servisi HTTP (FastAPI) açar
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:14060/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10m
