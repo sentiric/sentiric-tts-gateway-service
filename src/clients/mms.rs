@@ -19,16 +19,21 @@ impl MmsClient {
         let url = config.tts_mms_service_url.clone();
         info!("Configuring MMS Service Endpoint: {}", url);
         
-        let tls_config = load_client_tls_config(config).await?;
-        
-        // KRİTİK: Lazy Connection
-        let channel = Endpoint::from_shared(url)?
-            .tls_config(tls_config)?
-            .connect_lazy();
+        let channel = if url.starts_with("http://") {
+            // [FIX] HTTP ise TLS yükleme
+            warn!("⚠️ Using INSECURE channel for MMS: {}", url);
+            Endpoint::from_shared(url)?
+                .connect_lazy()
+        } else {
+            let tls_config = load_client_tls_config(config).await?;
+            Endpoint::from_shared(url)?
+                .tls_config(tls_config)?
+                .connect_lazy()
+        };
             
         Ok(Self { client: TtsMmsServiceClient::new(channel) })
     }
-
+    // ... (synthesize_stream metodu aynı kalacak) ...
     pub async fn synthesize_stream(
         &self,
         request: MmsSynthesizeStreamRequest,
