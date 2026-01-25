@@ -1,6 +1,6 @@
 [package]
 name = "sentiric-tts-gateway-service"
-version = "1.2.1"
+version = "1.2.2" # Bump
 edition = "2021"
 authors = ["Sentiric Team"]
 
@@ -28,11 +28,17 @@ anyhow = "1.0"
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+hyper = { version = "0.14.28", features = ["full"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+# Metrics
+metrics = "0.21"
+metrics-exporter-prometheus = "0.12"
 
 # Sentiric Ecosystem
 [dependencies.sentiric-contracts]
 git = "https://github.com/sentiric/sentiric-contracts.git"
-tag = "v1.13.2"
+tag = "v1.13.5" # GÜNCEL
 
 [build-dependencies]
 tonic-build = "0.11"

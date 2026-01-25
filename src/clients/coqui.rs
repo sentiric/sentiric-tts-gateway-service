@@ -20,21 +20,16 @@ impl CoquiClient {
         info!("Configuring Coqui Service Endpoint: {}", url);
         
         let channel = if url.starts_with("http://") {
-            // [FIX] HTTP ise TLS yükleme, direkt bağlan
             warn!("⚠️ Using INSECURE channel for Coqui: {}", url);
-            Endpoint::from_shared(url)?
-                .connect_lazy()
+            Endpoint::from_shared(url)?.connect_lazy()
         } else {
-            // HTTPS ise mTLS yükle
             let tls_config = load_client_tls_config(config).await?;
-            Endpoint::from_shared(url)?
-                .tls_config(tls_config)?
-                .connect_lazy()
+            Endpoint::from_shared(url)?.tls_config(tls_config)?.connect_lazy()
         };
             
         Ok(Self { client: TtsCoquiServiceClient::new(channel) })
     }
-    // ... (synthesize_stream metodu aynı kalacak) ...
+
     pub async fn synthesize_stream(
         &self,
         request: CoquiSynthesizeStreamRequest,
@@ -56,5 +51,9 @@ impl CoquiClient {
                 Err(e)
             }
         }
+    }
+
+    pub fn is_ready(&self) -> bool {
+        true
     }
 }
