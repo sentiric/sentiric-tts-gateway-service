@@ -1486,8 +1486,8 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sentiric-contracts"
-version = "1.13.5"
-source = "git+https://github.com/sentiric/sentiric-contracts.git?tag=v1.13.5#ca70476962acd0348f47cd067ace2661f9295761"
+version = "1.13.7"
+source = "git+https://github.com/sentiric/sentiric-contracts.git?tag=v1.13.7#dd7c8f225ec7d96764308b95b5b50902b8cb4856"
 dependencies = [
  "prost",
  "prost-types",
