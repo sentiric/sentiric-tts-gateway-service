@@ -1,6 +1,6 @@
 [package]
 name = "sentiric-tts-gateway-service"
-version = "1.2.2" # Bump
+version = "1.2.3" # PATCH versiyon artışı: v1.16.0 kontrat entegrasyonu
 edition = "2021"
 authors = ["Sentiric Team"]
 
@@ -36,7 +36,5 @@ metrics = "0.21"
 metrics-exporter-prometheus = "0.12"
 
 # Sentiric Ecosystem
-sentiric-contracts = { git = "https://github.com/sentiric/sentiric-contracts.git", tag = "v1.13.7" }
-
-[build-dependencies]
-tonic-build = "0.11"
+# [MİMARİ GÜNCELLEME]: Platformun yeni anayasası olan v1.16.0'a geçildi.
+sentiric-contracts = { git = "https://github.com/sentiric/sentiric-contracts.git", tag = "v1.16.0" }

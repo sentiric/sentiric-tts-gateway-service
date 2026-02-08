@@ -17,10 +17,10 @@ pub struct CoquiClient {
 impl CoquiClient {
     pub async fn connect(config: &Arc<AppConfig>) -> anyhow::Result<Self> {
         let url = config.tts_coqui_service_url.clone();
-        info!("Configuring Coqui Service Endpoint: {}", url);
+        info!(url = %url, "Coqui Service istemcisi yapılandırılıyor...");
         
         let channel = if url.starts_with("http://") {
-            warn!("⚠️ Using INSECURE channel for Coqui: {}", url);
+            warn!("⚠️ Coqui için GÜVENSİZ (insecure) kanal kullanılıyor: {}", url);
             Endpoint::from_shared(url)?.connect_lazy()
         } else {
             let tls_config = load_client_tls_config(config).await?;
@@ -38,22 +38,26 @@ impl CoquiClient {
         let mut client = self.client.clone();
         let mut req = Request::new(request);
 
+        // [GÖZLEMLENEBİLİRLİK]: Trace ID'yi gRPC metadata'sına enjekte et.
         if let Some(tid) = trace_id {
             if let Ok(meta_val) = MetadataValue::from_str(&tid) {
                 req.metadata_mut().insert("x-trace-id", meta_val);
             }
         }
 
+        info!(" downstream isteği Coqui motoruna gönderiliyor...");
         match client.coqui_synthesize_stream(req).await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => {
-                error!("Coqui Engine gRPC connection failed: {}", e);
+                error!(error = ?e, "Coqui motoruna gRPC bağlantısı başarısız oldu.");
                 Err(e)
             }
         }
     }
 
     pub fn is_ready(&self) -> bool {
+        // Bu, lazy connection için basitleştirilmiş bir kontroldür.
+        // Gerçek bir production sisteminde, periyodik bir health check mekanizması olmalıdır.
         true
     }
 }
