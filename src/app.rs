@@ -1,13 +1,14 @@
+// Dosya: src/app.rs
 use crate::config::AppConfig;
 use crate::clients::coqui::CoquiClient;
 use crate::clients::mms::MmsClient;
 use crate::grpc::server::TtsGateway;
 use crate::tls::load_server_tls_config;
-use crate::metrics::start_metrics_server; // EKLENDİ
+use crate::metrics::start_metrics_server; 
 use sentiric_contracts::sentiric::tts::v1::tts_gateway_service_server::TtsGatewayServiceServer;
 use tonic::transport::Server;
 use std::net::SocketAddr;
-use tracing::{info, warn};
+use tracing::{info};
 use anyhow::Result;
 use std::sync::Arc;
 
@@ -17,7 +18,9 @@ impl App {
     pub async fn run() -> Result<()> {
         let config = Arc::new(AppConfig::load()?);
 
+        // [ARCH-COMPLIANCE] constraints.yaml'ın gerektirdiği şekilde JSON loglama zorunlu kılındı (logging_format).
         tracing_subscriber::fmt()
+            .json()
             .with_env_filter(&config.rust_log)
             .init();
 
@@ -36,24 +39,17 @@ impl App {
         
         let mut builder = Server::builder();
 
-        if !config.tts_gateway_service_cert_path.is_empty() 
-            && !config.tts_gateway_service_key_path.is_empty() 
-            && !config.grpc_tls_ca_path.is_empty() 
+        // [ARCH-COMPLIANCE] constraints.yaml'ın gerektirdiği şekilde gRPC sunucusunda mTLS zorunlu kılındı (grpc_communication). Insecure fallback tamamen kaldırıldı.
+        if config.tts_gateway_service_cert_path.is_empty() 
+            || config.tts_gateway_service_key_path.is_empty() 
+            || config.grpc_tls_ca_path.is_empty() 
         {
-            match load_server_tls_config(&config).await {
-                Ok(tls_config) => {
-                    builder = builder.tls_config(tls_config)?;
-                    info!("🎧 gRPC Server listening on {} (mTLS Enabled)", addr);
-                },
-                Err(e) => {
-                    warn!("⚠️ Failed to load TLS config: {}. Falling back to INSECURE.", e);
-                    info!("🎧 gRPC Server listening on {} (INSECURE)", addr);
-                }
-            }
-        } else {
-            warn!("⚠️  TLS Certificate paths are empty. Starting gRPC server in INSECURE mode.");
-            info!("🎧 gRPC Server listening on {} (INSECURE)", addr);
+            panic!("Architectural Violation: mTLS certificates are strictly required. INSECURE mode is forbidden.");
         }
+
+        let tls_config = load_server_tls_config(&config).await.expect("Architectural Violation: Failed to load required TLS Configuration");
+        builder = builder.tls_config(tls_config)?;
+        info!("🎧 gRPC Server listening on {} (mTLS Enabled)", addr);
 
         builder
             .add_service(TtsGatewayServiceServer::new(gateway_service))

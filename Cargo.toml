@@ -1,6 +1,6 @@
 [package]
 name = "sentiric-tts-gateway-service"
-version = "1.2.3" # PATCH versiyon artışı: v1.16.0 kontrat entegrasyonu
+version = "1.2.4"
 edition = "2021"
 authors = ["Sentiric Team"]
 

@@ -1,3 +1,4 @@
+// Dosya: src/clients/coqui.rs
 use crate::config::AppConfig;
 use crate::tls::load_client_tls_config;
 use sentiric_contracts::sentiric::tts::v1::tts_coqui_service_client::TtsCoquiServiceClient;
@@ -5,7 +6,7 @@ use sentiric_contracts::sentiric::tts::v1::{CoquiSynthesizeStreamRequest, CoquiS
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 use std::sync::Arc;
-use tracing::{info, error, warn};
+use tracing::{info, error};
 use tonic::metadata::MetadataValue;
 use std::str::FromStr;
 
@@ -19,13 +20,13 @@ impl CoquiClient {
         let url = config.tts_coqui_service_url.clone();
         info!(url = %url, "Coqui Service istemcisi yapılandırılıyor...");
         
-        let channel = if url.starts_with("http://") {
-            warn!("⚠️ Coqui için GÜVENSİZ (insecure) kanal kullanılıyor: {}", url);
-            Endpoint::from_shared(url)?.connect_lazy()
-        } else {
-            let tls_config = load_client_tls_config(config).await?;
-            Endpoint::from_shared(url)?.tls_config(tls_config)?.connect_lazy()
-        };
+        // [ARCH-COMPLIANCE] constraints.yaml'ın gerektirdiği şekilde mTLS iletişimi zorunlu kılındı. Insecure branch silindi.
+        if url.starts_with("http://") {
+            panic!("Architectural Violation: Insecure HTTP channels are strictly forbidden for gRPC communication. Use https:// and mTLS.");
+        }
+        
+        let tls_config = load_client_tls_config(config).await?;
+        let channel = Endpoint::from_shared(url)?.tls_config(tls_config)?.connect_lazy();
             
         Ok(Self { client: TtsCoquiServiceClient::new(channel) })
     }
@@ -56,8 +57,6 @@ impl CoquiClient {
     }
 
     pub fn is_ready(&self) -> bool {
-        // Bu, lazy connection için basitleştirilmiş bir kontroldür.
-        // Gerçek bir production sisteminde, periyodik bir health check mekanizması olmalıdır.
         true
     }
 }
