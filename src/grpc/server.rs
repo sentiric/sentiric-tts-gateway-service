@@ -1,5 +1,4 @@
-// sentiric-tts-gateway-service/src/grpc/server.rs
-
+// Dosya: src/grpc/server.rs
 use crate::clients::coqui::CoquiClient;
 use crate::clients::mms::MmsClient;
 use sentiric_contracts::sentiric::tts::v1::tts_gateway_service_server::TtsGatewayService;
@@ -10,19 +9,16 @@ use sentiric_contracts::sentiric::tts::v1::{
 use futures::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
-use tracing::{error, info, instrument, Span};
+use tracing::{error, info, warn, instrument, Span};
 
 pub struct TtsGateway {
     coqui_client: CoquiClient,
-    mms_client: MmsClient, // [DÜZELTME]: '_' öneki kaldırıldı, artık aktif.
+    mms_client: MmsClient,
 }
 
 impl TtsGateway {
     pub fn new(coqui_client: CoquiClient, mms_client: MmsClient) -> Self {
-        Self {
-            coqui_client,
-            mms_client,
-        }
+        Self { coqui_client, mms_client }
     }
 }
 
@@ -34,9 +30,7 @@ impl TtsGatewayService for TtsGateway {
         &self,
         _request: Request<sentiric_contracts::sentiric::tts::v1::SynthesizeRequest>,
     ) -> Result<Response<sentiric_contracts::sentiric::tts::v1::SynthesizeResponse>, Status> {
-        Err(Status::unimplemented(
-            "Unary Synthesize is deprecated. Use SynthesizeStream for low latency.",
-        ))
+        Err(Status::unimplemented("Unary Synthesize is deprecated. Use SynthesizeStream for low latency."))
     }
 
     async fn list_voices(
@@ -51,39 +45,64 @@ impl TtsGatewayService for TtsGateway {
         &self,
         request: Request<SynthesizeStreamRequest>,
     ) -> Result<Response<Self::SynthesizeStreamStream>, Status> {
-        let trace_id = request
-            .metadata()
-            .get("x-trace-id")
-            .and_then(|m| m.to_str().ok())
-            .map(|s| s.to_string());
+        
+        let trace_id = request.metadata().get("x-trace-id").and_then(|m| m.to_str().ok()).map(|s| s.to_string());
+        let span_id = request.metadata().get("x-span-id").and_then(|m| m.to_str().ok()).map(|s| s.to_string());
+        let tenant_id = request.metadata().get("x-tenant-id").and_then(|m| m.to_str().ok()).map(|s| s.to_string());
+        
         Span::current().record("trace_id", &trace_id.as_deref().unwrap_or("unknown"));
+
+        // [ARCH-COMPLIANCE] Strict Tenant Isolation Check
+        if tenant_id.is_none() || tenant_id.as_deref().unwrap_or("").is_empty() {
+            error!(
+                event = "MISSING_TENANT_ID",
+                trace_id = ?trace_id,
+                span_id = ?span_id,
+                "Tenant ID is missing in request. Request rejected."
+            );
+            return Err(Status::invalid_argument("tenant_id is strictly required for isolation"));
+        }
 
         let req = request.into_inner();
         let voice_selector = req.voice_id.clone();
         Span::current().record("voice_id", &voice_selector.as_str());
 
-        // AudioConfig zorunlu
-        let audio_config = req
-            .audio_config
-            .ok_or_else(|| Status::invalid_argument("AudioConfig is mandatory."))?;
+        let audio_config = req.audio_config.ok_or_else(|| {
+            error!(
+                event = "INVALID_REQUEST",
+                trace_id = ?trace_id,
+                span_id = ?span_id,
+                tenant_id = ?tenant_id,
+                "AudioConfig is mandatory."
+            );
+            Status::invalid_argument("AudioConfig is mandatory.")
+        })?;
+        
         let requested_sample_rate = audio_config.sample_rate_hertz;
         Span::current().record("sample_rate", requested_sample_rate);
 
-        info!("TTS Gateway: İstek Yönlendiriliyor...");
+        info!(
+            event = "TTS_STREAM_REQUESTED",
+            trace_id = ?trace_id,
+            span_id = ?span_id,
+            tenant_id = ?tenant_id,
+            voice_id = %voice_selector,
+            sample_rate = %requested_sample_rate,
+            "TTS Gateway: İstek Yönlendiriliyor..."
+        );
 
         let (tx, rx) = tokio::sync::mpsc::channel(4096);
-
-        // Tuning parametreleri (Varsayılanlar)
         let tuning = req.tuning.unwrap_or_else(|| TuningParams {
             temperature: 0.75, speed: 1.0, top_p: 0.85, top_k: 50, repetition_penalty: 2.0,
         });
 
-        // --- YÖNLENDİRME MANTIĞI (ROUTING LOGIC) ---
+        let t_id_final = trace_id.clone();
+        let s_id_final = span_id.clone();
+        let ten_id_final = tenant_id.clone();
+
+        // --- ROUTING LOGIC ---
         if voice_selector.starts_with("mms:") {
-            // --- MMS MOTORU ---
-            // "mms:tur" -> "tur"
             let lang_code = voice_selector.strip_prefix("mms:").unwrap_or("tur").to_string();
-            
             let mms_req = MmsSynthesizeStreamRequest {
                 text: req.text,
                 language_code: lang_code,
@@ -91,7 +110,7 @@ impl TtsGatewayService for TtsGateway {
                 sample_rate: requested_sample_rate,
             };
 
-            match self.mms_client.synthesize_stream(mms_req, trace_id.clone()).await {
+            match self.mms_client.synthesize_stream(mms_req, trace_id.clone(), span_id.clone(), tenant_id.clone()).await {
                 Ok(mut stream) => {
                     tokio::spawn(async move {
                         while let Some(res) = stream.next().await {
@@ -104,11 +123,14 @@ impl TtsGatewayService for TtsGateway {
                                             content_type,
                                             provider_used: "mms".to_string(),
                                         };
-                                        if tx.send(Ok(resp)).await.is_err() { break; }
+                                        if tx.send(Ok(resp)).await.is_err() { 
+                                            warn!(event = "CLIENT_DISCONNECTED", trace_id = ?t_id_final, span_id = ?s_id_final, tenant_id = ?ten_id_final, "Client disconnected.");
+                                            break; 
+                                        }
                                     }
                                 }
                                 Err(e) => { 
-                                    error!(error = ?e, "MMS upstream error"); 
+                                    error!(event = "TTS_ENGINE_STREAM_ERROR", trace_id = ?t_id_final, span_id = ?s_id_final, tenant_id = ?ten_id_final, error = ?e, "MMS upstream error"); 
                                     let _ = tx.send(Err(e)).await; 
                                     break; 
                                 }
@@ -116,14 +138,9 @@ impl TtsGatewayService for TtsGateway {
                         }
                     });
                 },
-                Err(e) => {
-                    error!(error = ?e, "Failed to connect to MMS upstream");
-                    return Err(e);
-                }
+                Err(e) => { return Err(e); }
             }
-
         } else {
-            // --- COQUI MOTORU (Varsayılan) ---
             let coqui_req = CoquiSynthesizeStreamRequest {
                 text: req.text,
                 language_code: "tr".to_string(),
@@ -137,7 +154,7 @@ impl TtsGatewayService for TtsGateway {
                 sample_rate: requested_sample_rate,
             };
 
-            match self.coqui_client.synthesize_stream(coqui_req, trace_id.clone()).await {
+            match self.coqui_client.synthesize_stream(coqui_req, trace_id.clone(), span_id.clone(), tenant_id.clone()).await {
                 Ok(mut stream) => {
                     tokio::spawn(async move {
                         while let Some(res) = stream.next().await {
@@ -150,11 +167,14 @@ impl TtsGatewayService for TtsGateway {
                                             content_type,
                                             provider_used: "coqui".to_string(),
                                         };
-                                        if tx.send(Ok(resp)).await.is_err() { break; }
+                                        if tx.send(Ok(resp)).await.is_err() { 
+                                            warn!(event = "CLIENT_DISCONNECTED", trace_id = ?t_id_final, span_id = ?s_id_final, tenant_id = ?ten_id_final, "Client disconnected.");
+                                            break; 
+                                        }
                                     }
                                 }
                                 Err(e) => { 
-                                    error!(error = ?e, "Coqui upstream error"); 
+                                    error!(event = "TTS_ENGINE_STREAM_ERROR", trace_id = ?t_id_final, span_id = ?s_id_final, tenant_id = ?ten_id_final, error = ?e, "Coqui upstream error"); 
                                     let _ = tx.send(Err(e)).await; 
                                     break; 
                                 }
@@ -162,10 +182,7 @@ impl TtsGatewayService for TtsGateway {
                         }
                     });
                 }
-                Err(e) => {
-                    error!(error = ?e, "Failed to connect to Coqui upstream");
-                    return Err(e);
-                }
+                Err(e) => { return Err(e); }
             }
         }
 

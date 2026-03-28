@@ -18,13 +18,18 @@ pub struct MmsClient {
 impl MmsClient {
     pub async fn connect(config: &Arc<AppConfig>) -> anyhow::Result<Self> {
         let url = config.tts_mms_service_url.clone();
-        info!("Configuring MMS Service Endpoint: {}", url);
         
-        // [ARCH-COMPLIANCE] constraints.yaml'ın gerektirdiği şekilde mTLS iletişimi zorunlu kılındı. Insecure branch silindi.
         if url.starts_with("http://") {
             panic!("Architectural Violation: Insecure HTTP channels are strictly forbidden for gRPC communication. Use https:// and mTLS.");
         }
         
+        info!(
+            event = "UPSTREAM_CONNECTING",
+            url = %url,
+            engine = "mms",
+            "Configuring MMS Service Endpoint"
+        );
+
         let tls_config = load_client_tls_config(config).await?;
         let channel = Endpoint::from_shared(url)?.tls_config(tls_config)?.connect_lazy();
             
@@ -35,20 +40,41 @@ impl MmsClient {
         &self,
         request: MmsSynthesizeStreamRequest,
         trace_id: Option<String>,
+        span_id: Option<String>,
+        tenant_id: Option<String>,
     ) -> Result<tonic::Streaming<MmsSynthesizeStreamResponse>, tonic::Status> {
         let mut client = self.client.clone();
         let mut req = Request::new(request);
 
-        if let Some(tid) = trace_id {
-            if let Ok(meta_val) = MetadataValue::from_str(&tid) {
+        // [ARCH-COMPLIANCE] Strict Context Propagation
+        if let Some(tid) = trace_id.as_ref() {
+            if let Ok(meta_val) = MetadataValue::from_str(tid) {
                 req.metadata_mut().insert("x-trace-id", meta_val);
+            }
+        }
+        if let Some(sid) = span_id.as_ref() {
+            if let Ok(meta_val) = MetadataValue::from_str(sid) {
+                req.metadata_mut().insert("x-span-id", meta_val);
+            }
+        }
+        if let Some(ten) = tenant_id.as_ref() {
+            if let Ok(meta_val) = MetadataValue::from_str(ten) {
+                req.metadata_mut().insert("x-tenant-id", meta_val);
             }
         }
 
         match client.mms_synthesize_stream(req).await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => {
-                error!("MMS Engine gRPC connection failed: {}", e);
+                error!(
+                    event = "UPSTREAM_CALL_FAILED",
+                    trace_id = ?trace_id,
+                    span_id = ?span_id,
+                    tenant_id = ?tenant_id,
+                    engine = "mms",
+                    error = %e,
+                    "MMS Engine gRPC connection failed"
+                );
                 Err(e)
             }
         }

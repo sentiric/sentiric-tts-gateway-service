@@ -5,10 +5,11 @@ use crate::clients::mms::MmsClient;
 use crate::grpc::server::TtsGateway;
 use crate::tls::load_server_tls_config;
 use crate::metrics::start_metrics_server; 
+use crate::logger::SutsV4Formatter; // [YENİ]
 use sentiric_contracts::sentiric::tts::v1::tts_gateway_service_server::TtsGatewayServiceServer;
 use tonic::transport::Server;
 use std::net::SocketAddr;
-use tracing::{info};
+use tracing::{info, error};
 use anyhow::Result;
 use std::sync::Arc;
 
@@ -18,28 +19,36 @@ impl App {
     pub async fn run() -> Result<()> {
         let config = Arc::new(AppConfig::load()?);
 
-        // [ARCH-COMPLIANCE] constraints.yaml'ın gerektirdiği şekilde JSON loglama zorunlu kılındı (logging_format).
+        // [ARCH-COMPLIANCE] Özel SUTS v4.0 Formatter ayağa kaldırılır
+        let formatter = SutsV4Formatter {
+            service_name: "tts-gateway-service".to_string(),
+            service_version: config.service_version.clone(),
+            service_env: config.env.clone(),
+        };
+
         tracing_subscriber::fmt()
-            .json()
             .with_env_filter(&config.rust_log)
+            .event_format(formatter)
             .init();
 
-        info!("🚀 TTS Gateway Service v{} starting...", config.service_version);
+        info!(
+            event = "SERVICE_START",
+            schema_v = "1.0.0",
+            service_version = %config.service_version,
+            "🚀 TTS Gateway Service starting..."
+        );
 
         let coqui_client = CoquiClient::connect(&config).await?;
         let mms_client = MmsClient::connect(&config).await?;
 
-        // METRICS & HEALTH SERVER
         let metrics_addr: SocketAddr = format!("{}:{}", config.host, config.http_port).parse()?;
         start_metrics_server(metrics_addr, coqui_client.clone(), mms_client.clone());
 
-        // GRPC SERVER
         let addr: SocketAddr = format!("{}:{}", config.host, config.grpc_port).parse()?;
         let gateway_service = TtsGateway::new(coqui_client, mms_client);
         
         let mut builder = Server::builder();
 
-        // [ARCH-COMPLIANCE] constraints.yaml'ın gerektirdiği şekilde gRPC sunucusunda mTLS zorunlu kılındı (grpc_communication). Insecure fallback tamamen kaldırıldı.
         if config.tts_gateway_service_cert_path.is_empty() 
             || config.tts_gateway_service_key_path.is_empty() 
             || config.grpc_tls_ca_path.is_empty() 
@@ -49,12 +58,21 @@ impl App {
 
         let tls_config = load_server_tls_config(&config).await.expect("Architectural Violation: Failed to load required TLS Configuration");
         builder = builder.tls_config(tls_config)?;
-        info!("🎧 gRPC Server listening on {} (mTLS Enabled)", addr);
+        
+        info!(
+            event = "GRPC_SERVER_READY",
+            address = %addr,
+            "🎧 gRPC Server listening (mTLS Enabled)"
+        );
 
-        builder
+        if let Err(e) = builder
             .add_service(TtsGatewayServiceServer::new(gateway_service))
             .serve(addr)
-            .await?;
+            .await 
+        {
+            error!(event = "GRPC_SERVER_CRASH", error = %e, "gRPC Server stopped unexpectedly.");
+            return Err(e.into());
+        }
 
         Ok(())
     }

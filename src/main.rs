@@ -1,10 +1,12 @@
+// Dosya: src/main.rs
 mod app;
 mod config;
 mod error;
 mod grpc;
 mod clients;
 mod tls;
-mod metrics; // EKLENDİ
+mod metrics;
+mod logger; //[ARCH-COMPLIANCE] SUTS v4.0 Formatter Modülü Binary Ağacına Eklendi
 
 use anyhow::Result;
 use app::App;

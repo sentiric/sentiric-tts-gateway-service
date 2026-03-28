@@ -1,3 +1,4 @@
+// Dosya: src/metrics.rs
 use hyper::{service::{make_service_fn, service_fn}, Body, Request, Response, Server as HyperServer, StatusCode};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use std::convert::Infallible;
@@ -68,9 +69,17 @@ pub fn start_metrics_server(addr: SocketAddr, coqui: CoquiClient, mms: MmsClient
 
         let server = HyperServer::bind(&addr).serve(make_svc);
         
-        info!(address = %addr, "Prometheus & Health sunucusu dinleniyor...");
+        info!(
+            event = "METRICS_SERVER_READY",
+            address = %addr,
+            "Prometheus & Health sunucusu dinleniyor..."
+        );
         if let Err(e) = server.await {
-            error!(error = %e, "Metrik sunucusu hatası.");
+            error!(
+                event = "METRICS_SERVER_ERROR",
+                error = %e,
+                "Metrik sunucusu hatası."
+            );
         }
     });
 }

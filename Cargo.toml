@@ -1,6 +1,6 @@
 [package]
 name = "sentiric-tts-gateway-service"
-version = "1.2.4"
+version = "1.2.5"
 edition = "2021"
 authors = ["Sentiric Team"]
 
@@ -25,9 +25,12 @@ url = "2.5"
 thiserror = "1.0"
 anyhow = "1.0"
 
-# Observability
+# Observability (SUTS v4.0 Requirements)
+serde_json = "1.0"
+chrono = "0.4"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-core = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
 hyper = { version = "0.14.28", features = ["full"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
@@ -36,5 +39,7 @@ metrics = "0.21"
 metrics-exporter-prometheus = "0.12"
 
 # Sentiric Ecosystem
-# [MİMARİ GÜNCELLEME]: Platformun yeni anayasası olan v1.16.0'a geçildi.
 sentiric-contracts = { git = "https://github.com/sentiric/sentiric-contracts.git", tag = "v1.16.0" }
+
+[build-dependencies]
+tonic-build = "0.11"
