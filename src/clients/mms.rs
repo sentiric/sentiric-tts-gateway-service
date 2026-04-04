@@ -2,13 +2,15 @@
 use crate::config::AppConfig;
 use crate::tls::load_client_tls_config;
 use sentiric_contracts::sentiric::tts::v1::tts_mms_service_client::TtsMmsServiceClient;
-use sentiric_contracts::sentiric::tts::v1::{MmsSynthesizeStreamRequest, MmsSynthesizeStreamResponse};
+use sentiric_contracts::sentiric::tts::v1::{
+    MmsSynthesizeStreamRequest, MmsSynthesizeStreamResponse,
+};
+use std::str::FromStr;
+use std::sync::Arc;
+use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
-use std::sync::Arc;
-use tracing::{info, error};
-use tonic::metadata::MetadataValue;
-use std::str::FromStr;
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct MmsClient {
@@ -18,11 +20,11 @@ pub struct MmsClient {
 impl MmsClient {
     pub async fn connect(config: &Arc<AppConfig>) -> anyhow::Result<Self> {
         let url = config.tts_mms_service_url.clone();
-        
+
         if url.starts_with("http://") {
             panic!("Architectural Violation: Insecure HTTP channels are strictly forbidden for gRPC communication. Use https:// and mTLS.");
         }
-        
+
         info!(
             event = "UPSTREAM_CONNECTING",
             url = %url,
@@ -31,9 +33,13 @@ impl MmsClient {
         );
 
         let tls_config = load_client_tls_config(config).await?;
-        let channel = Endpoint::from_shared(url)?.tls_config(tls_config)?.connect_lazy();
-            
-        Ok(Self { client: TtsMmsServiceClient::new(channel) })
+        let channel = Endpoint::from_shared(url)?
+            .tls_config(tls_config)?
+            .connect_lazy();
+
+        Ok(Self {
+            client: TtsMmsServiceClient::new(channel),
+        })
     }
 
     pub async fn synthesize_stream(

@@ -55,3 +55,4 @@ grpcurl -insecure -d '{"voice_id": "coqui:default", "text": "Test"}' localhost:1
 | `TTS_MMS_SERVICE_URL` | `https://tts-mms-service:14061` | MMS Motoru Adresi |
 | `GRPC_TLS_CA_PATH` | `/certs/ca.crt` | Root CA Yolu |
 
+---

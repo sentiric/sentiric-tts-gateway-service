@@ -2,10 +2,10 @@
 use chrono::Utc;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use tracing::field::Visit;
 use tracing_core::{Event, Subscriber};
 use tracing_subscriber::fmt::{format::Writer, FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
-use tracing::field::Visit;
 
 pub struct SutsV4Formatter {
     pub service_name: String,
@@ -25,7 +25,7 @@ where
         event: &Event<'_>,
     ) -> std::fmt::Result {
         let meta = event.metadata();
-        
+
         let mut visitor = SutsVisitor::default();
         event.record(&mut visitor);
 
@@ -64,7 +64,7 @@ where
             "attributes": attributes
         });
 
-        writeln!(writer, "{}", log_obj.to_string())
+        writeln!(writer, "{}", log_obj)
     }
 }
 
@@ -86,7 +86,8 @@ impl Visit for SutsVisitor {
         } else if key == "event" {
             self.event = Some(clean_val);
         } else {
-            self.fields.insert(key.to_string(), Value::String(clean_val));
+            self.fields
+                .insert(key.to_string(), Value::String(clean_val));
         }
     }
 
@@ -97,20 +98,21 @@ impl Visit for SutsVisitor {
         } else if key == "event" {
             self.event = Some(value.to_string());
         } else {
-            self.fields.insert(key.to_string(), Value::String(value.to_string()));
+            self.fields
+                .insert(key.to_string(), Value::String(value.to_string()));
         }
     }
 
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-         self.fields.insert(field.name().to_string(), json!(value));
+        self.fields.insert(field.name().to_string(), json!(value));
     }
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-         self.fields.insert(field.name().to_string(), json!(value));
+        self.fields.insert(field.name().to_string(), json!(value));
     }
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-         self.fields.insert(field.name().to_string(), json!(value));
+        self.fields.insert(field.name().to_string(), json!(value));
     }
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-         self.fields.insert(field.name().to_string(), json!(value));
+        self.fields.insert(field.name().to_string(), json!(value));
     }
 }

@@ -1,17 +1,17 @@
 // Dosya: src/app.rs
-use crate::config::AppConfig;
 use crate::clients::coqui::CoquiClient;
 use crate::clients::mms::MmsClient;
+use crate::config::AppConfig;
 use crate::grpc::server::TtsGateway;
-use crate::tls::load_server_tls_config;
-use crate::metrics::start_metrics_server; 
 use crate::logger::SutsV4Formatter; // [YENİ]
-use sentiric_contracts::sentiric::tts::v1::tts_gateway_service_server::TtsGatewayServiceServer;
-use tonic::transport::Server;
-use std::net::SocketAddr;
-use tracing::{info, error};
+use crate::metrics::start_metrics_server;
+use crate::tls::load_server_tls_config;
 use anyhow::Result;
+use sentiric_contracts::sentiric::tts::v1::tts_gateway_service_server::TtsGatewayServiceServer;
+use std::net::SocketAddr;
 use std::sync::Arc;
+use tonic::transport::Server;
+use tracing::{error, info};
 
 pub struct App;
 
@@ -46,19 +46,21 @@ impl App {
 
         let addr: SocketAddr = format!("{}:{}", config.host, config.grpc_port).parse()?;
         let gateway_service = TtsGateway::new(coqui_client, mms_client);
-        
+
         let mut builder = Server::builder();
 
-        if config.tts_gateway_service_cert_path.is_empty() 
-            || config.tts_gateway_service_key_path.is_empty() 
-            || config.grpc_tls_ca_path.is_empty() 
+        if config.tts_gateway_service_cert_path.is_empty()
+            || config.tts_gateway_service_key_path.is_empty()
+            || config.grpc_tls_ca_path.is_empty()
         {
             panic!("Architectural Violation: mTLS certificates are strictly required. INSECURE mode is forbidden.");
         }
 
-        let tls_config = load_server_tls_config(&config).await.expect("Architectural Violation: Failed to load required TLS Configuration");
+        let tls_config = load_server_tls_config(&config)
+            .await
+            .expect("Architectural Violation: Failed to load required TLS Configuration");
         builder = builder.tls_config(tls_config)?;
-        
+
         info!(
             event = "GRPC_SERVER_READY",
             address = %addr,
@@ -68,7 +70,7 @@ impl App {
         if let Err(e) = builder
             .add_service(TtsGatewayServiceServer::new(gateway_service))
             .serve(addr)
-            .await 
+            .await
         {
             error!(event = "GRPC_SERVER_CRASH", error = %e, "gRPC Server stopped unexpectedly.");
             return Err(e.into());

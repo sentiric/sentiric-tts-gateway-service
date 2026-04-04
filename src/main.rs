@@ -1,17 +1,17 @@
 // Dosya: src/main.rs
 mod app;
+mod clients;
 mod config;
 mod error;
 mod grpc;
-mod clients;
-mod tls;
+mod logger;
 mod metrics;
-mod logger; //[ARCH-COMPLIANCE] SUTS v4.0 Formatter Modülü Binary Ağacına Eklendi
+mod tls; //[ARCH-COMPLIANCE] SUTS v4.0 Formatter Modülü Binary Ağacına Eklendi
 
 use anyhow::Result;
 use app::App;
-use rustls::crypto::CryptoProvider;
 use rustls::crypto::ring::default_provider;
+use rustls::crypto::CryptoProvider;
 
 #[tokio::main]
 async fn main() -> Result<()> {

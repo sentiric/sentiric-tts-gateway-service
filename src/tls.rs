@@ -1,20 +1,29 @@
 use crate::config::AppConfig;
 use anyhow::{Context, Result};
-use tonic::transport::{Certificate, Identity, ServerTlsConfig, ClientTlsConfig};
+use tonic::transport::{Certificate, ClientTlsConfig, Identity, ServerTlsConfig};
 
 // Sunucu tarafı mTLS konfigürasyonu (Gateway'in kendisi için)
 pub async fn load_server_tls_config(config: &AppConfig) -> Result<ServerTlsConfig> {
-    let cert = tokio::fs::read(&config.tts_gateway_service_cert_path).await
-        .context(format!("Failed to read cert: {}", config.tts_gateway_service_cert_path))?;
-    
-    let key = tokio::fs::read(&config.tts_gateway_service_key_path).await
-        .context(format!("Failed to read key: {}", config.tts_gateway_service_key_path))?;
-    
+    let cert = tokio::fs::read(&config.tts_gateway_service_cert_path)
+        .await
+        .context(format!(
+            "Failed to read cert: {}",
+            config.tts_gateway_service_cert_path
+        ))?;
+
+    let key = tokio::fs::read(&config.tts_gateway_service_key_path)
+        .await
+        .context(format!(
+            "Failed to read key: {}",
+            config.tts_gateway_service_key_path
+        ))?;
+
     let identity = Identity::from_pem(cert, key);
-    
-    let ca_cert = tokio::fs::read(&config.grpc_tls_ca_path).await
+
+    let ca_cert = tokio::fs::read(&config.grpc_tls_ca_path)
+        .await
         .context(format!("Failed to read CA: {}", config.grpc_tls_ca_path))?;
-    
+
     let client_ca_root = Certificate::from_pem(ca_cert);
 
     Ok(ServerTlsConfig::new()
@@ -24,9 +33,13 @@ pub async fn load_server_tls_config(config: &AppConfig) -> Result<ServerTlsConfi
 
 // İstemci tarafı mTLS konfigürasyonu (Upstream servislere bağlanmak için)
 pub async fn load_client_tls_config(config: &AppConfig) -> Result<ClientTlsConfig> {
-    let ca_cert = tokio::fs::read(&config.grpc_tls_ca_path).await
-        .context(format!("Failed to read CA for client: {}", config.grpc_tls_ca_path))?;
-    
+    let ca_cert = tokio::fs::read(&config.grpc_tls_ca_path)
+        .await
+        .context(format!(
+            "Failed to read CA for client: {}",
+            config.grpc_tls_ca_path
+        ))?;
+
     let ca = Certificate::from_pem(ca_cert);
 
     let cert = tokio::fs::read(&config.tts_gateway_service_cert_path).await?;
