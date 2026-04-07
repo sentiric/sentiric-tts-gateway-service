@@ -52,7 +52,11 @@ impl CoquiClient {
         let mut client = self.client.clone();
         let mut req = Request::new(request);
 
-        // [ARCH-COMPLIANCE] Strict Context Propagation
+        // Context ayıklama
+        let tid_log = trace_id.as_deref().unwrap_or("unknown");
+        let sid_log = span_id.as_deref().unwrap_or("unknown");
+        let ten_log = tenant_id.as_deref().unwrap_or("unknown");
+
         if let Some(tid) = trace_id.as_ref() {
             if let Ok(meta_val) = MetadataValue::from_str(tid) {
                 req.metadata_mut().insert("x-trace-id", meta_val);
@@ -72,11 +76,12 @@ impl CoquiClient {
         match client.coqui_synthesize_stream(req).await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => {
+                // [ARCH-COMPLIANCE FIX] ? işareti yerine % kullanılarak Some("..") string'e zorlandı
                 error!(
                     event = "UPSTREAM_CALL_FAILED",
-                    trace_id = ?trace_id,
-                    span_id = ?span_id,
-                    tenant_id = ?tenant_id,
+                    trace_id = %tid_log,
+                    span_id = %sid_log,
+                    tenant_id = %ten_log,
                     engine = "coqui",
                     error = %e,
                     "Coqui motoruna gRPC bağlantısı başarısız oldu."
