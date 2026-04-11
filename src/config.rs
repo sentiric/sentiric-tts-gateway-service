@@ -18,6 +18,7 @@ pub struct AppConfig {
     // Upstream Services
     pub tts_coqui_service_url: String,
     pub tts_mms_service_url: String,
+    pub tts_omnivoice_service_url: String,
 
     // Security
     pub grpc_tls_ca_path: String,
@@ -42,12 +43,21 @@ impl AppConfig {
             // DEFAULTS
             .set_default("env", "production")?
             .set_default("rust_log", "info,sentiric_tts_gateway=debug")?
-            .set_default("service_version", "1.2.2")?
+            // Bu kısı cargo.toml dan alınmalı.
+            .set_default("service_version", "1.2.10")?
             .set_default("host", "0.0.0.0")?
             .set_default("http_port", 14010)? // EKLENDİ
             .set_default("grpc_port", 14011)?
             .set_default("tts_coqui_service_url", "https://tts-coqui-service:14031")?
             .set_default("tts_mms_service_url", "https://tts-mms-service:14061")?
+            .set_override_option(
+                "tts_omnivoice_service_url",
+                env::var("TTS_OMNIVOICE_SERVICE_URL").ok(),
+            )?
+            .set_default(
+                "tts_omnivoice_service_url",
+                "https://tts-omnivoice-service:14041",
+            )?
             .set_default("grpc_tls_ca_path", "/sentiric-certificates/certs/ca.crt")?
             .set_default(
                 "tts_gateway_service_cert_path",

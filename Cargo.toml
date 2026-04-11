@@ -1,6 +1,6 @@
 [package]
 name = "sentiric-tts-gateway-service"
-version = "1.2.7"
+version = "1.2.10"
 edition = "2021"
 authors = ["Sentiric Team"]
 
@@ -39,7 +39,7 @@ metrics = "0.21"
 metrics-exporter-prometheus = "0.12"
 
 # Sentiric Ecosystem
-sentiric-contracts = { git = "https://github.com/sentiric/sentiric-contracts.git", tag = "v1.16.0" }
+sentiric-contracts = { git = "https://github.com/sentiric/sentiric-contracts.git", tag = "v1.21.0" }
 
 [build-dependencies]
 tonic-build = "0.11"

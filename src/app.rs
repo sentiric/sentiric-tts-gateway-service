@@ -41,11 +41,16 @@ impl App {
         let coqui_client = CoquiClient::connect(&config).await?;
         let mms_client = MmsClient::connect(&config).await?;
 
+        //[EKLENEN SATIR]: Omnivoice'u lazy (tembel) modda bağlar. Kapalıysa gateway ÇÖKMEZ.
+        let omnivoice_client = crate::clients::omnivoice::OmnivoiceClient::connect(&config).await?;
+
         let metrics_addr: SocketAddr = format!("{}:{}", config.host, config.http_port).parse()?;
         start_metrics_server(metrics_addr, coqui_client.clone(), mms_client.clone());
 
         let addr: SocketAddr = format!("{}:{}", config.host, config.grpc_port).parse()?;
-        let gateway_service = TtsGateway::new(coqui_client, mms_client);
+
+        // [DÜZELTİLEN SATIR]: Omnivoice client içeri enjekte edildi
+        let gateway_service = TtsGateway::new(coqui_client, mms_client, omnivoice_client);
 
         let mut builder = Server::builder();
 
