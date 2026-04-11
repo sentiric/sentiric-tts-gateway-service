@@ -11,7 +11,7 @@ use sentiric_contracts::sentiric::tts::v1::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
-use tracing::{error, info, instrument, Span}; // [FIX]: kullanılmayan `warn` silindi
+use tracing::{error, info, instrument, warn, Span};
 
 pub struct TtsGateway {
     coqui_client: CoquiClient,
@@ -91,15 +91,13 @@ impl TtsGatewayService for TtsGateway {
 
         let audio_config = req
             .audio_config
+            .clone()
             .ok_or_else(|| Status::invalid_argument("AudioConfig is mandatory."))?;
 
         let requested_sample_rate = audio_config.sample_rate_hertz;
         Span::current().record("sample_rate", requested_sample_rate);
 
-        info!(event = "TTS_STREAM_REQUESTED", trace_id = %tid_log, voice_id = %voice_selector, "TTS Gateway: Routing Request...");
-
-        let (tx, rx) = tokio::sync::mpsc::channel(4096);
-        let tuning = req.tuning.unwrap_or(TuningParams {
+        let tuning = req.tuning.clone().unwrap_or(TuningParams {
             temperature: 0.75,
             speed: 1.0,
             top_p: 0.85,
@@ -107,31 +105,57 @@ impl TtsGatewayService for TtsGateway {
             repetition_penalty: 2.0,
         });
 
-        // [FIX]: Kullanılmayan `tid_thread`, `sid_thread`, `ten_thread` değişkenleri silindi.
+        info!(event = "TTS_STREAM_REQUESTED", trace_id = %tid_log, voice_id = %voice_selector, "TTS Gateway: Yönlendirme ve Fallback Zinciri Başlatılıyor...");
 
-        // 1. OMNIVOICE ROUTING
-        if voice_selector.starts_with("omnivoice:") {
-            let omni_req = OmnivoiceSynthesizeStreamRequest {
-                text: req.text,
-                language_code: "tr".to_string(),
-                voice_guidance_prompt: Some(voice_selector.replace("omnivoice:", "")),
-                reference_audio: req.cloning_audio_data,
-                temperature: tuning.temperature,
-                speed: tuning.speed,
-                output_format: "pcm".to_string(),
-                sample_rate: requested_sample_rate,
-            };
+        // ---------------------------------------------------------------------
+        // 🛡️ AKILLI ŞELALE STRATEJİSİ (SMART FALLBACK CHAIN)
+        // ---------------------------------------------------------------------
+        let engine_chain = if voice_selector.starts_with("omnivoice:") {
+            vec!["omnivoice", "coqui", "mms"]
+        } else if voice_selector.starts_with("mms:") {
+            vec!["mms", "omnivoice", "coqui"]
+        } else {
+            // Varsayılan (veya coqui:)
+            vec!["coqui", "omnivoice", "mms"]
+        };
 
-            match self
-                .omnivoice_client
-                .synthesize_stream(omni_req, trace_id_opt, span_id_opt, tenant_id_opt)
-                .await
-            {
-                Ok(mut stream) => {
-                    tokio::spawn(async move {
-                        while let Some(res) = stream.next().await {
-                            match res {
-                                Ok(chunk) => {
+        let (tx, rx) = tokio::sync::mpsc::channel(4096);
+        let mut stream_established = false;
+
+        for engine in engine_chain {
+            info!(event = "TTS_ENGINE_TRY", trace_id = %tid_log, engine = %engine, "Motor deneniyor...");
+
+            match engine {
+                "omnivoice" => {
+                    let omni_req = OmnivoiceSynthesizeStreamRequest {
+                        text: req.text.clone(),
+                        language_code: "tr".to_string(),
+                        voice_guidance_prompt: Some(
+                            voice_selector
+                                .replace("omnivoice:", "")
+                                .replace("coqui:", ""),
+                        ),
+                        reference_audio: req.cloning_audio_data.clone(),
+                        temperature: tuning.temperature,
+                        speed: tuning.speed,
+                        output_format: "pcm".to_string(),
+                        sample_rate: requested_sample_rate,
+                    };
+                    match self
+                        .omnivoice_client
+                        .synthesize_stream(
+                            omni_req,
+                            trace_id_opt.clone(),
+                            span_id_opt.clone(),
+                            tenant_id_opt.clone(),
+                        )
+                        .await
+                    {
+                        Ok(mut stream) => {
+                            info!(event = "TTS_ENGINE_SUCCESS", trace_id = %tid_log, engine = "omnivoice", "✅ Motor bağlantısı başarılı!");
+                            stream_established = true;
+                            tokio::spawn(async move {
+                                while let Some(Ok(chunk)) = stream.next().await {
                                     if !chunk.audio_chunk.is_empty() {
                                         let resp = SynthesizeStreamResponse {
                                             audio_content: chunk.audio_chunk,
@@ -146,82 +170,42 @@ impl TtsGatewayService for TtsGateway {
                                         }
                                     }
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(Err(e)).await;
-                                    break;
-                                }
-                            }
+                            });
+                            break;
                         }
-                    });
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        // 2. MMS ROUTING
-        else if voice_selector.starts_with("mms:") {
-            let mms_req = MmsSynthesizeStreamRequest {
-                text: req.text,
-                language_code: voice_selector
-                    .strip_prefix("mms:")
-                    .unwrap_or("tur")
-                    .to_string(),
-                speed: tuning.speed,
-                sample_rate: requested_sample_rate,
-            };
-            match self
-                .mms_client
-                .synthesize_stream(mms_req, trace_id_opt, span_id_opt, tenant_id_opt)
-                .await
-            {
-                Ok(mut stream) => {
-                    tokio::spawn(async move {
-                        while let Some(res) = stream.next().await {
-                            if let Ok(chunk) = res {
-                                if !chunk.audio_chunk.is_empty() {
-                                    let resp = SynthesizeStreamResponse {
-                                        audio_content: chunk.audio_chunk,
-                                        content_type: format!(
-                                            "audio/L16;rate={}",
-                                            requested_sample_rate
-                                        ),
-                                        provider_used: "mms".to_string(),
-                                    };
-                                    if tx.send(Ok(resp)).await.is_err() {
-                                        break;
-                                    }
-                                }
-                            }
+                        Err(e) => {
+                            warn!(event = "TTS_ENGINE_UNAVAILABLE", trace_id = %tid_log, engine = "omnivoice", error = %e, "⚠️ Motor ulaşılamaz durumda. Fallback zincirinde bir sonrakine geçiliyor.");
                         }
-                    });
+                    }
                 }
-                Err(e) => return Err(e),
-            }
-        }
-        // 3. COQUI ROUTING (Fallback/Default)
-        else {
-            let coqui_req = CoquiSynthesizeStreamRequest {
-                text: req.text,
-                language_code: "tr".to_string(),
-                speaker_wav: req.cloning_audio_data,
-                temperature: tuning.temperature,
-                speed: tuning.speed,
-                top_p: tuning.top_p,
-                top_k: tuning.top_k as f32,
-                repetition_penalty: tuning.repetition_penalty,
-                output_format: "pcm".to_string(),
-                sample_rate: requested_sample_rate,
-            };
-
-            match self
-                .coqui_client
-                .synthesize_stream(coqui_req, trace_id_opt, span_id_opt, tenant_id_opt)
-                .await
-            {
-                Ok(mut stream) => {
-                    tokio::spawn(async move {
-                        while let Some(res) = stream.next().await {
-                            match res {
-                                Ok(chunk) => {
+                "coqui" => {
+                    let coqui_req = CoquiSynthesizeStreamRequest {
+                        text: req.text.clone(),
+                        language_code: "tr".to_string(),
+                        speaker_wav: req.cloning_audio_data.clone(),
+                        temperature: tuning.temperature,
+                        speed: tuning.speed,
+                        top_p: tuning.top_p,
+                        top_k: tuning.top_k as f32,
+                        repetition_penalty: tuning.repetition_penalty,
+                        output_format: "pcm".to_string(),
+                        sample_rate: requested_sample_rate,
+                    };
+                    match self
+                        .coqui_client
+                        .synthesize_stream(
+                            coqui_req,
+                            trace_id_opt.clone(),
+                            span_id_opt.clone(),
+                            tenant_id_opt.clone(),
+                        )
+                        .await
+                    {
+                        Ok(mut stream) => {
+                            info!(event = "TTS_ENGINE_SUCCESS", trace_id = %tid_log, engine = "coqui", "✅ Motor bağlantısı başarılı!");
+                            stream_established = true;
+                            tokio::spawn(async move {
+                                while let Some(Ok(chunk)) = stream.next().await {
                                     if !chunk.audio_chunk.is_empty() {
                                         let resp = SynthesizeStreamResponse {
                                             audio_content: chunk.audio_chunk,
@@ -236,16 +220,67 @@ impl TtsGatewayService for TtsGateway {
                                         }
                                     }
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(Err(e)).await;
-                                    break;
-                                }
-                            }
+                            });
+                            break;
                         }
-                    });
+                        Err(e) => {
+                            warn!(event = "TTS_ENGINE_UNAVAILABLE", trace_id = %tid_log, engine = "coqui", error = %e, "⚠️ Motor ulaşılamaz durumda. Fallback zincirinde bir sonrakine geçiliyor.");
+                        }
+                    }
                 }
-                Err(e) => return Err(e),
+                "mms" => {
+                    let mms_req = MmsSynthesizeStreamRequest {
+                        text: req.text.clone(),
+                        language_code: "tur".to_string(),
+                        speed: tuning.speed,
+                        sample_rate: requested_sample_rate,
+                    };
+                    match self
+                        .mms_client
+                        .synthesize_stream(
+                            mms_req,
+                            trace_id_opt.clone(),
+                            span_id_opt.clone(),
+                            tenant_id_opt.clone(),
+                        )
+                        .await
+                    {
+                        Ok(mut stream) => {
+                            info!(event = "TTS_ENGINE_SUCCESS", trace_id = %tid_log, engine = "mms", "✅ Motor bağlantısı başarılı!");
+                            stream_established = true;
+                            tokio::spawn(async move {
+                                while let Some(Ok(chunk)) = stream.next().await {
+                                    if !chunk.audio_chunk.is_empty() {
+                                        let resp = SynthesizeStreamResponse {
+                                            audio_content: chunk.audio_chunk,
+                                            content_type: format!(
+                                                "audio/L16;rate={}",
+                                                requested_sample_rate
+                                            ),
+                                            provider_used: "mms".to_string(),
+                                        };
+                                        if tx.send(Ok(resp)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            });
+                            break;
+                        }
+                        Err(e) => {
+                            warn!(event = "TTS_ENGINE_UNAVAILABLE", trace_id = %tid_log, engine = "mms", error = %e, "⚠️ Motor ulaşılamaz durumda. Fallback zincirinde bir sonrakine geçiliyor.");
+                        }
+                    }
+                }
+                _ => {}
             }
+        }
+
+        if !stream_established {
+            error!(event = "TTS_ALL_ENGINES_FAILED", trace_id = %tid_log, "🚨 FATAL: Hiçbir TTS motoru yanıt vermedi!");
+            return Err(Status::unavailable(
+                "Tüm uzman TTS motorları devre dışı. Lütfen sistemi kontrol edin.",
+            ));
         }
 
         Ok(Response::new(ReceiverStream::new(rx)))

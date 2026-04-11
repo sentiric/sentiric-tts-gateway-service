@@ -44,7 +44,7 @@ impl AppConfig {
             .set_default("env", "production")?
             .set_default("rust_log", "info,sentiric_tts_gateway=debug")?
             // Bu kısım cargo.toml dan alınmalı.
-            .set_default("service_version", "1.2.11")?
+            .set_default("service_version", "1.3.0")?
             .set_default("host", "0.0.0.0")?
             .set_default("http_port", 14010)? // EKLENDİ
             .set_default("grpc_port", 14011)?
